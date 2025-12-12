@@ -24,7 +24,6 @@ from typing import Callable, ClassVar, Protocol, Self, override, runtime_checkab
 # ruff: noqa: T201 S311
 # TODO: explain what environments are tested in module doc
 # TODO: sort config and arguments alphabetically
-# TODO: goal test and selector to recieve fitness
 
 __all__: list[str] = []  # This module is not meant to be imported.
 
@@ -79,7 +78,7 @@ class Named(Protocol):
     __name__: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class Component[T](ABC):
     """Container of an object and its name, for pretty printing."""
 
@@ -152,16 +151,19 @@ class Fitness(Component[Callable[[State], float]]):
     """
 
 
-class GoalTest(Component[Callable[[State], bool]]):
+type _FitState = tuple[float, State]
+
+
+class GoalTest(Component[Callable[[_FitState], bool]]):
     """If a state is sufficiently optimal.
 
     Although evolution runs forever, we are constrained by compute and probably want
-    our programs to stop, so define when a state is good enough. As with fitness, a
-    goal may involve more than a single organism, but I will not model that.
-    """
+    our programs to stop, so define when a state is good enough. The float argument to
+    the callable is the state's fitness.
+    """  # Tuple is better than unpacked tuple because the algorithm stores tuples.
 
 
-class Selector(Component[Callable[[list[State], list[State]], list[State]]]):
+class Selector(Component[Callable[[list[_FitState], list[_FitState]], list[State]]]):
     """What states in a population are maintained?
 
     The first argument to this class's function is the parents' states, and the second
@@ -249,11 +251,12 @@ def prime(state: State) -> float:
     """Count the number of prime numbers in the positions."""
 
     def is_prime(n: int) -> bool:
+        # Cached sieve of Eratosthenes is more performant than cached trial division
+        # when queries are sufficiently dense.
         if n not in range(Config.granularity):
             msg = f"Number {n} is out of range({Config.granularity})"
             raise ValueError(msg)
         if Config.prime_table is None:
-            # Sieve of Eratosthenes more performant than trial division when cached.
             Config.prime_table = [True] * Config.granularity
             Config.prime_table[0] = Config.prime_table[1] = False
             prime = 2
@@ -280,22 +283,28 @@ def all_zero(state: State) -> float:
 ## Algorithm definition. ###############################################################
 
 
-def genetic_search(environment: Environment) -> tuple[int, State | None]:
+def genetic_search(env: Environment) -> tuple[int, State | None]:
     """Find a satisficing state on a generation, or None if the algorithm failed."""
     seed(Config.seed)
     parents = [State.random() for _ in range(Config.initial_pop_size)]
     for generation in range(Config.max_generations):
-        for state in parents:
-            if environment.goal_test.data(state):
-                return generation, state
-        fitnesses = list(map(environment.fitness.data, parents))
+        parent_fitstates = [(env.fitness.data(state), state) for state in parents]
+        min_fitness, min_state = min(parent_fitstates)
+        max_fitness, max_state = max(parent_fitstates)
         details(f"Generation {generation}")
-        details(f"Min fitness {min(fitnesses)}")
-        details(f"Max fitness {max(fitnesses)}")
-        pairs = [choices(parents, fitnesses, k=2) for _ in range(Config.reproductions)]
-        children = (environment.recombinator.data(*p) for p in pairs)
-        children = map(environment.mutator.data, children)
-        parents = environment.selector.data(parents, list(children))
+        details(f"Min fitness {min_fitness} in {min_state}")
+        details(f"Max fitness {max_fitness} in {max_state}")
+        for fitpair in parent_fitstates:
+            if env.goal_test.data(fitpair):
+                return generation, fitpair[1]
+        # Type checker unable to infer type of *zip(*parent_fitpairs).
+        fitnesses = [fitpair[0] for fitpair in parent_fitstates]
+        states = [fitpair[1] for fitpair in parent_fitstates]
+        matings = [choices(states, fitnesses, k=2) for _ in range(Config.reproductions)]
+        children = (env.recombinator.data(*p) for p in matings)
+        children = map(env.mutator.data, children)
+        children_fitstates = [(env.fitness.data(state), state) for state in children]
+        parents = env.selector.data(parent_fitstates, children_fitstates)
     return Config.max_generations, None
 
 
