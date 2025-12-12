@@ -15,13 +15,16 @@ import sys
 from abc import ABC
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import dataclass
+from functools import reduce
 from random import choice, choices, randint, seed
-from time import time
+from time import perf_counter_ns
 from types import NoneType
 from typing import Callable, ClassVar, Protocol, Self, override, runtime_checkable
 
 # ruff: noqa: T201 S311
 # TODO: explain what environments are tested in module doc
+# TODO: sort config and arguments alphabetically
+# TODO: goal test and selector to recieve fitness
 
 __all__: list[str] = []  # This module is not meant to be imported.
 
@@ -32,7 +35,7 @@ __all__: list[str] = []  # This module is not meant to be imported.
 class Config:
     """Optional user-supplied configuration from the command line.
 
-    See `parse_args` method in this module for what these attributes mean.
+    See the `parse_args` method in this module for what these attributes mean.
     """
 
     dimensions: ClassVar[int] = 100
@@ -43,6 +46,7 @@ class Config:
     reproductions: ClassVar[int] = 10
     max_generations: ClassVar[int] = 10
     initial_pop_size: ClassVar[int] = 10
+    prime_table: list[bool] | None = None  # Not user configuration, but still a global.
 
     @staticmethod
     def validate() -> bool:
@@ -152,7 +156,8 @@ class GoalTest(Component[Callable[[State], bool]]):
     """If a state is sufficiently optimal.
 
     Although evolution runs forever, we are constrained by compute and probably want
-    our programs to stop, so define when a state is good enough.
+    our programs to stop, so define when a state is good enough. As with fitness, a
+    goal may involve more than a single organism, but I will not model that.
     """
 
 
@@ -180,19 +185,22 @@ class Environment(Component[NoneType]):
 
 
 @Component.to(Recombinator)
-def halfway_split(a: State, b: State) -> State:
+def halfway_split(mother: State, father: State) -> State:
+    """Draw left schema from mother, and right schema from father."""
     split = Config.dimensions // 2
-    return State.of(a.data[:split] + b.data[split:])
+    return State.of(mother.data[:split] + father.data[split:])
 
 
 @Component.to(Recombinator)
-def random_split(a: State, b: State) -> State:
+def random_split(mother: State, father: State) -> State:
+    """Draw part schema from mother, and other part schema from father."""
     split = randint(1, Config.dimensions - 1)
-    return State.of(a.data[:split] + b.data[split:])
+    return State.of(mother.data[:split] + father.data[split:])
 
 
 @Component.to(Mutator)
 def bounded_nudge(state: State) -> State:
+    """Change a position by 1, but do nothing if exceeds granularity."""
     position = randint(0, Config.dimensions - 1)
     new_value = state.data[position] + choice([-1, 1])
     if new_value not in range(Config.dimensions):
@@ -202,6 +210,7 @@ def bounded_nudge(state: State) -> State:
 
 @Component.to(Mutator)
 def wrapped_nudge(state: State) -> State:
+    """Change a position by 1, wrapping around if exceeds granularity."""
     position = randint(0, Config.dimensions - 1)
     new_value = (state.data[position] + choice([-1, 1])) % Config.dimensions
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
@@ -209,9 +218,60 @@ def wrapped_nudge(state: State) -> State:
 
 @Component.to(Mutator)
 def regenerate(state: State) -> State:
+    """Set a position to a random value."""
     position = randint(0, Config.dimensions - 1)
     new_value = randint(0, Config.dimensions - 1)
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
+
+
+@Component.to(Mutator)
+def obliterate(_: State) -> State:
+    """Regenerate all of the positions."""
+    return State.random()
+
+
+@Component.to(Fitness)
+def multiplication(state: State) -> float:
+    """Multiply all of the positions."""
+    # Divide and conquer is faster than accumulate for values > 1e1000 or so because
+    # big number multiplication is slow, but I hope it will not come to that.
+    return float(reduce(lambda x, y: x * y, state.data, 1))
+
+
+@Component.to(Fitness)
+def addition(state: State) -> float:
+    """Add all of the positions."""
+    return float(sum(state.data))
+
+
+@Component.to(Fitness)
+def prime(state: State) -> float:
+    """Count the number of prime numbers in the positions."""
+
+    def is_prime(n: int) -> bool:
+        if n not in range(Config.granularity):
+            msg = f"Number {n} is out of range({Config.granularity})"
+            raise ValueError(msg)
+        if Config.prime_table is None:
+            # Sieve of Eratosthenes more performant than trial division when cached.
+            Config.prime_table = [True] * Config.granularity
+            Config.prime_table[0] = Config.prime_table[1] = False
+            prime = 2
+            while prime * prime < Config.granularity:
+                if Config.prime_table[prime]:
+                    for multiple in range(prime * prime, Config.granularity, prime):
+                        Config.prime_table[multiple] = False
+                prime += 1
+        return Config.prime_table[n]
+
+    return float(sum(map(is_prime, state.data)))
+
+
+@Component.to(Fitness)
+def all_zero(state: State) -> float:
+    """All values are 0."""
+    # random.choices with all 0 weights will raise, so I give it a small value.
+    return float(all(x == 0 for x in state.data)) or 1e-9
 
 
 ## Environment construction. ###########################################################
@@ -228,10 +288,11 @@ def genetic_search(environment: Environment) -> tuple[int, State | None]:
         for state in parents:
             if environment.goal_test.data(state):
                 return generation, state
-        fitnesses = map(environment.fitness.data, parents)
-        pairs = [
-            choices(parents, list(fitnesses), k=2) for _ in range(Config.reproductions)
-        ]
+        fitnesses = list(map(environment.fitness.data, parents))
+        details(f"Generation {generation}")
+        details(f"Min fitness {min(fitnesses)}")
+        details(f"Max fitness {max(fitnesses)}")
+        pairs = [choices(parents, fitnesses, k=2) for _ in range(Config.reproductions)]
         children = (environment.recombinator.data(*p) for p in pairs)
         children = map(environment.mutator.data, children)
         parents = environment.selector.data(parents, list(children))
@@ -259,12 +320,12 @@ def drive() -> None:
     environments = collect_all()
     print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
     for curr_test, environment in enumerate(environments):
-        print(f"Test {curr_test}... ", end="")
-        print(environment)
+        print(f"Test {curr_test} of {environment.name} ", end="")
+        details(str(environment))
         solves, times = zip(*[do_trial(i, environment) for i in range(Config.trials)])
         avg_time = sum(times) / len(times)
         solve_rate = sum(solves) / len(solves)
-        print(f"average {avg_time} seconds, {int(100 * solve_rate)}% success rate.")
+        print(f"average {avg_time} nanoseconds, {int(100 * solve_rate)}% success rate.")
 
 
 def do_trial(
@@ -272,11 +333,11 @@ def do_trial(
     environment: Environment,
 ) -> tuple[bool, float]:
     """Test the genetic algorithm on a single environment."""
-    start_time = time()
+    start_time = perf_counter_ns()
     generations, solution = genetic_search(environment)
-    end_time = time()
+    end_time = perf_counter_ns()
     status_report = f"{generations} generations" if solution else "failed"
-    time_report = f"{end_time - start_time} seconds."
+    time_report = f"{end_time - start_time} nanoseconds."
     details(f"Trial {number}: {status_report} in {time_report}")
     return bool(solution), end_time - start_time
 
