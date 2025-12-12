@@ -7,9 +7,10 @@ from __future__ import annotations
 import sys
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import dataclass
+from random import choices, randint, seed
 from typing import Callable, ClassVar
 
-# ruff: noqa: T201
+# ruff: noqa: T201 S311
 
 __all__ = []
 
@@ -21,6 +22,7 @@ class Context:
     dimensions: ClassVar[int] = 100
     granularity: ClassVar[int] = 100
     debug: ClassVar[bool] = False
+    seed: ClassVar[int | None] = None
 
 
 def debug(message: str) -> None:
@@ -44,8 +46,9 @@ class State:
     val: tuple[int, ...]
 
     @staticmethod
-    def null() -> State:
-        return State(tuple(0 for _ in range(Context.dimensions)))
+    def random() -> State:
+        gen = (randint(0, Context.granularity) for _ in range(Context.dimensions))
+        return State(tuple(gen))
 
 
 @dataclass(frozen=True)
@@ -137,7 +140,50 @@ class Enviornment:
     selector: Selector = Selector(Selector.null)
 
 
+@dataclass(frozen=True)
+class Algorithm:
+    """Specification for miscellaneous things in a genetic algorithm.
+
+    We want to know how many offspring to produce per generation, how many generations
+    to search before giving up (if max_generation is 0 or negative, it should be
+    interpreted as forever (beware this may cause the program to hang), and the initial
+    population size, which must be a positive integer.
+    """
+
+    reproductions: int = 10
+    max_generations: int = 0
+    initial_pop_size: int = 10
+
+
 ## Algorithm definition. ###############################################################
+
+
+def genetic_search(
+    environment: Enviornment,
+    algorithm: Algorithm,
+) -> State | None:
+    """Find a satisficing state, or None if that is not possible."""
+    if algorithm.initial_pop_size <= 0:
+        msg = "initial_pop_size must be positive integer"
+        raise ValueError(msg)
+    seed(Context.seed)
+    generation = 0
+    parents = [State.random() for _ in range(algorithm.initial_pop_size)]
+    while True:
+        for state in parents:
+            if environment.goal_test.fn(state):
+                return state
+        fitnesses = map(environment.fitness.fn, parents)
+        pairs = [
+            choices(parents, list(fitnesses), k=2)
+            for _ in range(algorithm.reproductions)
+        ]
+        children = (environment.recombinator.fn(*p) for p in pairs)
+        children = map(environment.mutator.fn, children)
+        parents = environment.selector.fn(parents, list(children))
+        generation += 1
+        if algorithm.max_generations > 0 and generation > algorithm.max_generations:
+            return None
 
 
 ## Parameter examples. #################################################################
@@ -176,10 +222,17 @@ def parse_args(argv: list[str]) -> None:
         default=Context.debug,
         help="print debugging information to stderr",
     )
+    _ = parser.add_argument(
+        "--seed",
+        type=int,
+        default=Context.seed,
+        help="random seed for reproducibility",
+    )
     args = parser.parse_args(argv[1:])
     Context.dimensions = args.dimensions  # pyright: ignore[reportAny]
     Context.granularity = args.granularity  # pyright: ignore[reportAny]
     Context.debug = args.debug  # pyright: ignore[reportAny]
+    Context.seed = args.seed  # pyright: ignore[reportAny]
 
 
 def main(argv: list[str]) -> int:
