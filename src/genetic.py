@@ -1,6 +1,10 @@
 """Genetic algorithm definition and driver.
 
-Requires python>=3.12.
+This module is a command line script for empirical tests of genetic algorithms. It is
+designed around printing test results to stdout. You can run it with `python3 genetic.py
+--help`.
+
+Requires python>=3.12 for typing.
 """
 
 ## Preamble. ###########################################################################
@@ -17,7 +21,7 @@ from types import NoneType
 from typing import Callable, ClassVar, Protocol, Self, override, runtime_checkable
 
 # ruff: noqa: T201 S311
-# TODO: remove parameter class, shove into context
+# TODO: explain what environments are tested in module doc
 
 __all__: list[str] = []  # This module is not meant to be imported.
 
@@ -25,30 +29,40 @@ __all__: list[str] = []  # This module is not meant to be imported.
 
 
 @dataclass  # Mutable.
-class Context:
+class Config:
+    """Optional user-supplied configuration from the command line.
+
+    See `parse_args` method in this module for what these attributes mean.
+    """
+
     dimensions: ClassVar[int] = 100
     granularity: ClassVar[int] = 100
-    debug: ClassVar[bool] = False
+    details: ClassVar[bool] = False
     seed: ClassVar[int | None] = None
     trials: ClassVar[int] = 1
+    reproductions: ClassVar[int] = 10
+    max_generations: ClassVar[int] = 10
+    initial_pop_size: ClassVar[int] = 10
 
     @staticmethod
     def validate() -> bool:
-        if Context.dimensions <= 0:
-            print(f"Dimensions is {Context.dimensions}, but must be strictly positive.")
-            return False
-        if Context.granularity <= 0:
-            granularity = Context.granularity
-            print(f"Granularity is {granularity}, but must be strictly positive.")
-            return False
-        if Context.trials <= 0:
-            print(f"Trials is {Context.trials}, but must be strictly positive.")
+        checks = [
+            (Config.dimensions, "Dimensions"),
+            (Config.granularity, "Granularity"),
+            (Config.trials, "Trials"),
+            (Config.initial_pop_size, "Initial population size"),
+            (Config.max_generations, "Max generations"),
+            (Config.reproductions, "Reproductions"),
+        ]
+        for value, name in checks:
+            if value <= 0:
+                print(f"{name} is {value}, but must be a strictly positive integer.")
             return False
         return True
 
 
-def debug(message: str) -> None:
-    if Context.debug:
+def details(message: str) -> None:
+    if Config.details:
         print("\t", end="", file=sys.stderr)
         print(message, file=sys.stderr)
 
@@ -63,6 +77,7 @@ class Named(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Component[T](ABC):
+    """Container of an object and its name, for pretty printing."""
 
     name: str
     data: T
@@ -79,9 +94,12 @@ class Component[T](ABC):
         return cls(name, data)
 
     @staticmethod
-    def to[S](target: type[Component[S]]) -> Callable[[S], Component[S]]:
+    def to[S](
+        target_class: type[Component[S]],
+        name: str | None = None,
+    ) -> Callable[[S], Component[S]]:
         def wrapper(data: S) -> Component[S]:
-            return target.of(data)
+            return target_class.of(data, name)
 
         return wrapper
 
@@ -100,7 +118,7 @@ class State(Component[tuple[int, ...]]):
 
     @staticmethod
     def random() -> State:
-        gen = (randint(0, Context.granularity) for _ in range(Context.dimensions))
+        gen = (randint(0, Config.granularity) for _ in range(Config.dimensions))
         return State.of(tuple(gen))
 
 
@@ -158,136 +176,108 @@ class Environment(Component[NoneType]):
     selector: Selector
 
 
-@dataclass(frozen=True, slots=True)
-class Parameter(Component[NoneType]):
-    """Specification of tuneable parameters: how hard should the algorithm try?
-
-    We want to know how many offspring to produce per generation, how many generations
-    to search before giving up (if max_generation is 0 or negative, it should be
-    interpreted as forever (beware this may cause the program to hang), and the initial
-    population size, which must be a positive integer.
-    """
-
-    reproductions: int = 10
-    max_generations: int = 10
-    initial_pop_size: int = 10
-
-
 ## Component construction. #############################################################
 
 
 @Component.to(Recombinator)
 def halfway_split(a: State, b: State) -> State:
-    split = Context.dimensions // 2
+    split = Config.dimensions // 2
     return State.of(a.data[:split] + b.data[split:])
 
 
 @Component.to(Recombinator)
 def random_split(a: State, b: State) -> State:
-    split = randint(1, Context.dimensions - 1)
+    split = randint(1, Config.dimensions - 1)
     return State.of(a.data[:split] + b.data[split:])
 
 
 @Component.to(Mutator)
 def bounded_nudge(state: State) -> State:
-    position = randint(0, Context.dimensions - 1)
+    position = randint(0, Config.dimensions - 1)
     new_value = state.data[position] + choice([-1, 1])
-    if new_value not in range(Context.dimensions):
+    if new_value not in range(Config.dimensions):
         new_value = state.data[position]
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
 
 @Component.to(Mutator)
 def wrapped_nudge(state: State) -> State:
-    position = randint(0, Context.dimensions - 1)
-    new_value = (state.data[position] + choice([-1, 1])) % Context.dimensions
+    position = randint(0, Config.dimensions - 1)
+    new_value = (state.data[position] + choice([-1, 1])) % Config.dimensions
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
 
 @Component.to(Mutator)
 def regenerate(state: State) -> State:
-    position = randint(0, Context.dimensions - 1)
-    new_value = randint(0, Context.dimensions - 1)
+    position = randint(0, Config.dimensions - 1)
+    new_value = randint(0, Config.dimensions - 1)
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
+
+
+## Environment construction. ###########################################################
 
 
 ## Algorithm definition. ###############################################################
 
 
-def genetic_search(
-    environment: Environment,
-    parameter: Parameter,
-) -> tuple[int, State | None]:
+def genetic_search(environment: Environment) -> tuple[int, State | None]:
     """Find a satisficing state on a generation, or None if the algorithm failed."""
-    if parameter.initial_pop_size <= 0:
-        msg = "initial_pop_size must be positive integer"
-        raise ValueError(msg)
-    seed(Context.seed)
-    generation = 0
-    parents = [State.random() for _ in range(parameter.initial_pop_size)]
-    while True:
+    seed(Config.seed)
+    parents = [State.random() for _ in range(Config.initial_pop_size)]
+    for generation in range(Config.max_generations):
         for state in parents:
             if environment.goal_test.data(state):
                 return generation, state
-        if parameter.max_generations > 0 and generation >= parameter.max_generations:
-            return generation, None
         fitnesses = map(environment.fitness.data, parents)
         pairs = [
-            choices(parents, list(fitnesses), k=2)
-            for _ in range(parameter.reproductions)
+            choices(parents, list(fitnesses), k=2) for _ in range(Config.reproductions)
         ]
         children = (environment.recombinator.data(*p) for p in pairs)
         children = map(environment.mutator.data, children)
         parents = environment.selector.data(parents, list(children))
-        generation += 1
+    return Config.max_generations, None
 
 
 ## Driver. #############################################################################
 
 
-def collect_all() -> tuple[list[Environment], list[Parameter]]:
-    # Get all the environments and algorithms in global scope by reflection. Beware
-    # this method may return incomplete lists if it is called too early.
-    environments: list[Environment] = []
-    parameters: list[Parameter] = []
-    for obj in globals().values():  # pyright: ignore[reportAny]
-        if isinstance(obj, Environment):
-            environments.append(obj)
-        if isinstance(obj, Parameter):
-            parameters.append(obj)
-    return environments, parameters
+def collect_all() -> list[Environment]:
+    """Collect all Environment instances defined at the global scope.
+
+    This method uses reflection. It may return an incomplete list if it is called too
+    early.
+    """
+    return [
+        obj
+        for obj in globals().values()  # pyright: ignore[reportAny]
+        if isinstance(obj, Environment)
+    ]
 
 
 def drive() -> None:
-    environments, parameters = collect_all()
-    curr_test = 0
-    total_tests = len(environments) * len(parameters)
-    print(f"Running {total_tests} tests, each of {Context.trials} trials...")
-    for environment in environments:
-        for parameter in parameters:
-            print(f"Test {curr_test}... ", end="")
-            print(environment)
-            print(parameter)
-            solves, times = [
-                do_trial(i, environment, parameter) for i in range(Context.trials)
-            ]
-            time = sum(times) / len(times)
-            solve = sum(solves) / len(solves)
-            print(f"average {time} seconds, {int(100 * solve)}% success rate.")
-            curr_test += 1
+    """Test the genetic algorithm on the given environments."""
+    environments = collect_all()
+    print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
+    for curr_test, environment in enumerate(environments):
+        print(f"Test {curr_test}... ", end="")
+        print(environment)
+        solves, times = zip(*[do_trial(i, environment) for i in range(Config.trials)])
+        avg_time = sum(times) / len(times)
+        solve_rate = sum(solves) / len(solves)
+        print(f"average {avg_time} seconds, {int(100 * solve_rate)}% success rate.")
 
 
 def do_trial(
     number: int,
     environment: Environment,
-    parameter: Parameter,
 ) -> tuple[bool, float]:
+    """Test the genetic algorithm on a single environment."""
     start_time = time()
-    generations, solution = genetic_search(environment, parameter)
+    generations, solution = genetic_search(environment)
     end_time = time()
-    debug(f"Trial {number}: ")
-    print(f"{generations} generations." if solution else "Failed.", end="")
-    print(f"{end_time - start_time:.2f} seconds.")
+    status_report = f"{generations} generations" if solution else "failed"
+    time_report = f"{end_time - start_time} seconds."
+    details(f"Trial {number}: {status_report} in {time_report}")
     return bool(solution), end_time - start_time
 
 
@@ -306,40 +296,61 @@ def parse_args(argv: list[str]) -> bool:
     _ = parser.add_argument(
         "--dimensions",
         type=int,
-        default=Context.dimensions,
+        default=Config.dimensions,
         help="number of dimensions of the state space",
     )
     _ = parser.add_argument(
         "--granularity",
         type=int,
-        default=Context.granularity,
+        default=Config.granularity,
         help="how many distinct values each dimension can take on",
     )
     _ = parser.add_argument(
-        "--debug",
+        "--details",
         type=bool,
-        default=Context.debug,
-        help="print debugging information to stderr",
+        default=Config.details,
+        help="print extra information, probably not of interest, to stderr",
     )
     _ = parser.add_argument(
         "--seed",
         type=int,
-        default=Context.seed,
+        default=Config.seed,
         help="random seed for reproducibility",
     )
     _ = parser.add_argument(
         "--trials",
         type=int,
-        default=Context.trials,
+        default=Config.trials,
         help="number of trials to run per algorithm configuration",
     )
+    _ = parser.add_argument(
+        "--reproductions",
+        type=int,
+        default=Config.reproductions,
+        help="number of offspring to produce per generation",
+    )
+    _ = parser.add_argument(
+        "--max-generations",
+        type=int,
+        default=Config.max_generations,
+        help="maximum generations to run the algorithm for",
+    )
+    _ = parser.add_argument(
+        "--initial-pop-size",
+        type=int,
+        default=Config.initial_pop_size,
+        help="size of the initial population",
+    )
     args = parser.parse_args(argv[1:])
-    Context.dimensions = args.dimensions  # pyright: ignore[reportAny]
-    Context.granularity = args.granularity  # pyright: ignore[reportAny]
-    Context.debug = args.debug  # pyright: ignore[reportAny]
-    Context.seed = args.seed  # pyright: ignore[reportAny]
-    Context.trials = args.trials  # pyright: ignore[reportAny]
-    return Context.validate()
+    Config.dimensions = args.dimensions  # pyright: ignore[reportAny]
+    Config.granularity = args.granularity  # pyright: ignore[reportAny]
+    Config.details = args.details  # pyright: ignore[reportAny]
+    Config.seed = args.seed  # pyright: ignore[reportAny]
+    Config.trials = args.trials  # pyright: ignore[reportAny]
+    Config.reproductions = args.reproductions  # pyright: ignore[reportAny]
+    Config.max_generations = args.max_generations  # pyright: ignore[reportAny]
+    Config.initial_pop_size = args.initial_pop_size  # pyright: ignore[reportAny]
+    return Config.validate()
 
 
 def main(argv: list[str]) -> int:
