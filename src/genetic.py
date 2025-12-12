@@ -1,4 +1,7 @@
-"""Genetic algorithm definition and driver."""
+"""Genetic algorithm definition and driver.
+
+Requires python>=3.12.
+"""
 
 ## Preamble. ###########################################################################
 
@@ -8,11 +11,12 @@ import sys
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import dataclass
 from random import choices, randint, seed
-from typing import Callable, ClassVar
+from time import time
+from typing import Callable, ClassVar, override
 
 # ruff: noqa: T201 S311
 
-__all__ = []
+__all__: list[str] = []  # This module is not meant to be imported.
 
 ## Globals. ############################################################################
 
@@ -23,6 +27,7 @@ class Context:
     granularity: ClassVar[int] = 100
     debug: ClassVar[bool] = False
     seed: ClassVar[int | None] = None
+    trials: ClassVar[int] = 1
 
 
 def debug(message: str) -> None:
@@ -52,7 +57,16 @@ class State:
 
 
 @dataclass(frozen=True)
-class Recombinator:
+class _Named:
+    name: str
+
+    @override
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}[{self.name.replace("\n", " ")}]"
+
+
+@dataclass(frozen=True)
+class Recombinator(_Named):
     """Combine two parent states to produce a sucessor.
 
     Genetic algorithms are blind to the nature of problems, so do not intelligently
@@ -68,7 +82,7 @@ class Recombinator:
 
 
 @dataclass(frozen=True)
-class Mutator:
+class Mutator(_Named):
     """Edit a state.
 
     This introduces diversity into the environment, in contrast to the recombinator,
@@ -83,7 +97,7 @@ class Mutator:
 
 
 @dataclass(frozen=True)
-class Fitness:
+class Fitness(_Named):
     """Evaluate a state.
 
     Defining a fitness function is how you and I can define the problem to solve. This
@@ -99,7 +113,7 @@ class Fitness:
 
 
 @dataclass(frozen=True)
-class GoalTest:
+class GoalTest(_Named):
     """If a state is sufficiently optimal.
 
     Although evolution runs forever, we are constrained by compute and probably want
@@ -114,7 +128,7 @@ class GoalTest:
 
 
 @dataclass(frozen=True)
-class Selector:
+class Selector(_Named):
     """What states in a population are maintained?
 
     The first argument to this class's function is the parents' states, and the second
@@ -130,19 +144,19 @@ class Selector:
 
 
 @dataclass(frozen=True)
-class Enviornment:
-    """Specification for a genetic algorithm's problem."""
+class Environment(_Named):
+    """Specification of components: what is the algorithm?"""
 
-    recombinator: Recombinator = Recombinator(Recombinator.null)
-    mutator: Mutator = Mutator(Mutator.null)
-    fitness: Fitness = Fitness(Fitness.null)
-    goal_test: GoalTest = GoalTest(GoalTest.null)
-    selector: Selector = Selector(Selector.null)
+    recombinator: Recombinator = Recombinator("Null", Recombinator.null)
+    mutator: Mutator = Mutator("Null", Mutator.null)
+    fitness: Fitness = Fitness("Null", Fitness.null)
+    goal_test: GoalTest = GoalTest("Null", GoalTest.null)
+    selector: Selector = Selector("Null", Selector.null)
 
 
 @dataclass(frozen=True)
-class Algorithm:
-    """Specification for miscellaneous things in a genetic algorithm.
+class Parameter(_Named):
+    """Specification of tuneable parameters: how hard should the algorithm try?
 
     We want to know how many offspring to produce per generation, how many generations
     to search before giving up (if max_generation is 0 or negative, it should be
@@ -151,7 +165,7 @@ class Algorithm:
     """
 
     reproductions: int = 10
-    max_generations: int = 0
+    max_generations: int = 10
     initial_pop_size: int = 10
 
 
@@ -159,37 +173,75 @@ class Algorithm:
 
 
 def genetic_search(
-    environment: Enviornment,
-    algorithm: Algorithm,
-) -> State | None:
-    """Find a satisficing state, or None if that is not possible."""
-    if algorithm.initial_pop_size <= 0:
+    environment: Environment,
+    parameter: Parameter,
+) -> tuple[int, State | None]:
+    """Find a satisficing state on a generation, or None if the algorithm failed."""
+    if parameter.initial_pop_size <= 0:
         msg = "initial_pop_size must be positive integer"
         raise ValueError(msg)
     seed(Context.seed)
     generation = 0
-    parents = [State.random() for _ in range(algorithm.initial_pop_size)]
+    parents = [State.random() for _ in range(parameter.initial_pop_size)]
     while True:
         for state in parents:
             if environment.goal_test.fn(state):
-                return state
+                return generation, state
+        if parameter.max_generations > 0 and generation >= parameter.max_generations:
+            return generation, None
         fitnesses = map(environment.fitness.fn, parents)
         pairs = [
             choices(parents, list(fitnesses), k=2)
-            for _ in range(algorithm.reproductions)
+            for _ in range(parameter.reproductions)
         ]
         children = (environment.recombinator.fn(*p) for p in pairs)
         children = map(environment.mutator.fn, children)
         parents = environment.selector.fn(parents, list(children))
         generation += 1
-        if algorithm.max_generations > 0 and generation > algorithm.max_generations:
-            return None
 
 
-## Parameter examples. #################################################################
+## Environment and parameter examples. #################################################
 
 
 ## Driver. #############################################################################
+
+
+def collect_all() -> tuple[list[Environment], list[Parameter]]:
+    # Get all the environments and algorithms in global scope by reflection. Beware
+    # this method may return incomplete lists if it is called too early.
+    environments: list[Environment] = []
+    parameters: list[Parameter] = []
+    for obj in globals().values():  # pyright: ignore[reportAny]
+        if isinstance(obj, Environment):
+            environments.append(obj)
+        if isinstance(obj, Parameter):
+            parameters.append(obj)
+    return environments, parameters
+
+
+def drive() -> None:
+    environments, parameters = collect_all()
+    curr_test = 0
+    total_tests = len(environments) * len(parameters)
+    print(f"Running {total_tests} tests, each of {Context.trials} trials...")
+    for environment in environments:
+        for parameter in parameters:
+            print(f"Test {curr_test}")
+            print(environment)
+            print(parameter)
+            times = [do_trial(i, environment, parameter) for i in range(Context.trials)]
+            print(f"\tAverage time: {sum(times) / len(times):.2f} seconds.")
+            curr_test += 1
+
+
+def do_trial(number: int, environment: Environment, parameter: Parameter) -> float:
+    start_time = time()
+    generations, solution = genetic_search(environment, parameter)
+    end_time = time()
+    print(f"\tTrial {number}: ", end="")
+    print(f"{generations} generations." if solution else "Failed.", end="")
+    print(f"{end_time - start_time:.2f} seconds.")
+    return end_time - start_time
 
 
 ## Frontend. ###########################################################################
@@ -228,15 +280,23 @@ def parse_args(argv: list[str]) -> None:
         default=Context.seed,
         help="random seed for reproducibility",
     )
+    _ = parser.add_argument(
+        "--trials",
+        type=int,
+        default=Context.trials,
+        help="number of trials to run per algorithm configuration",
+    )
     args = parser.parse_args(argv[1:])
     Context.dimensions = args.dimensions  # pyright: ignore[reportAny]
     Context.granularity = args.granularity  # pyright: ignore[reportAny]
     Context.debug = args.debug  # pyright: ignore[reportAny]
     Context.seed = args.seed  # pyright: ignore[reportAny]
+    Context.trials = args.trials  # pyright: ignore[reportAny]
 
 
 def main(argv: list[str]) -> int:
     parse_args(argv)
+    drive()
     return 0
 
 
