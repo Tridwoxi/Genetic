@@ -1,10 +1,19 @@
 """Genetic algorithm definition and driver.
 
-This module is a command line script for empirical tests of genetic algorithms. It is
-designed around printing test results to stdout. You can run it with `python3 genetic.py
---help`.
+This module is a command line script for empirical tests of genetic algorithms. You can
+run it with `python3 genetic.py --help`.
 
-Requires python>=3.12 for typing, no third-party dependencies.
+It is designed for extensibility with independent components of a genetic algorithm,
+the printing of those components to stdout, and the printing of search results to
+stdout. Since this module is built for research, ease of use in real world scenarios is
+not a priority.
+
+Structurally, this module consists of a preamble, global variables (user configuration),
+component base class, data model (state, recombinator, mutator, fitness, goal test,
+selector, environment), component implementations, environment definitions, a generic
+genetic algorithm implementation, driver that prints results, and frontend.
+
+Requires python>=3.12 for typing. No third-party dependencies.
 """
 
 ## Preamble. ###########################################################################
@@ -19,12 +28,20 @@ from dataclasses import dataclass
 from functools import reduce
 from random import choice, choices, randint, seed
 from time import perf_counter_ns
-from types import NoneType
-from typing import Callable, ClassVar, Protocol, Self, override, runtime_checkable
+from typing import (
+    Callable,
+    ClassVar,
+    Protocol,
+    Self,
+    final,
+    override,
+    runtime_checkable,
+)
 
 # ruff: noqa: T201 S311
 # TODO: explain what environments are tested in module doc
 # TODO: sort config and arguments alphabetically
+# TODO: bugfix
 
 __all__: list[str] = []  # This module is not meant to be imported.
 
@@ -38,15 +55,14 @@ class Config:
     See the `parse_args` method in this module for what these attributes mean.
     """
 
-    dimensions: ClassVar[int] = 100
-    granularity: ClassVar[int] = 100
+    dimensions: ClassVar[int] = 10
+    granularity: ClassVar[int] = 10
     details: ClassVar[bool] = False
     seed: ClassVar[int | None] = None
     trials: ClassVar[int] = 1
     reproductions: ClassVar[int] = 10
     max_generations: ClassVar[int] = 10
     initial_pop_size: ClassVar[int] = 10
-    prime_table: list[bool] | None = None  # Not user configuration, but still a global.
 
     @staticmethod
     def validate() -> bool:
@@ -58,11 +74,15 @@ class Config:
             (Config.max_generations, "Max generations"),
             (Config.reproductions, "Reproductions"),
         ]
+        ok = True
         for value, name in checks:
             if value <= 0:
                 print(f"{name} is {value}, but must be a strictly positive integer.")
-            return False
-        return True
+                ok = False
+        return ok
+
+    # Not user configuration, but still a global, and I don't want another class.
+    prime_table: list[bool] | None = None
 
 
 def details(message: str) -> None:
@@ -90,20 +110,26 @@ class Component[T](ABC):
     def __str__(self) -> str:
         return f"{self.__class__.__name__}[{self.name}]"
 
+    @final
     @classmethod
     def of(cls, data: T, name: str | None = None) -> Self:
+        if Component.__dataclass_fields__ != cls.__dataclass_fields__:
+            # ^ It is more correct to use "class where this method was most recently
+            # overriden", rather than the hardcoded "Component". That class is gettable
+            # by inspecting the method resolution order, but until someone wants to
+            # implement that behaviour, I will simply mark this class final instead.
+            msg = "Incompatible constructor (were additional fields defined?)."
+            raise TypeError(msg)
         if name is None:
             name = data.__name__ if isinstance(data, Named) else "Unnamed"
             name = name.replace("_", " ").title().replace("", "").strip()
         return cls(name, data)
 
-    @staticmethod
-    def to[S](
-        target_class: type[Component[S]],
-        name: str | None = None,
-    ) -> Callable[[S], Component[S]]:
-        def wrapper(data: S) -> Component[S]:
-            return target_class.of(data, name)
+    @final
+    @classmethod
+    def to(cls, name: str | None = None) -> Callable[[T], Self]:
+        def wrapper(data: T) -> Self:
+            return cls.of(data, name)  # Overriding "Component.of"? Change this too.
 
         return wrapper
 
@@ -119,6 +145,15 @@ class State(Component[tuple[int, ...]]):
     granularity may differ across dimensions or be continious, but this generalization
     is unhelpful for this demonstration. Analgously, an organism.
     """
+
+    @override
+    def __str__(self) -> str:
+        truncatable = 20
+        if len(self.data) > truncatable:
+            data_str = str(self.data[:truncatable])[:-1] + "..."
+        else:
+            data_str = str(self.data)
+        return f"State[{data_str}]"
 
     @staticmethod
     def random() -> State:
@@ -174,8 +209,12 @@ class Selector(Component[Callable[[list[_FitState], list[_FitState]], list[State
 
 
 @dataclass(frozen=True, slots=True)
-class Environment(Component[NoneType]):
-    """Specification of components: what is the algorithm?"""
+class Environment(Component[str]):
+    """Specification of components: what is the algorithm?
+
+    An environment's data field is a description. An environment contains additional
+    fields, so must be constructed with __init__ instead of Component.of.
+    """
 
     recombinator: Recombinator
     mutator: Mutator
@@ -187,21 +226,21 @@ class Environment(Component[NoneType]):
 ## Component construction. #############################################################
 
 
-@Component.to(Recombinator)
+@Recombinator.to()
 def halfway_split(mother: State, father: State) -> State:
-    """Draw left schema from mother, and right schema from father."""
+    """Draw left schema half from mother, and right schema half from father."""
     split = Config.dimensions // 2
     return State.of(mother.data[:split] + father.data[split:])
 
 
-@Component.to(Recombinator)
+@Recombinator.to()
 def random_split(mother: State, father: State) -> State:
-    """Draw part schema from mother, and other part schema from father."""
+    """Draw left schema part from mother, and right schema part from father."""
     split = randint(1, Config.dimensions - 1)
     return State.of(mother.data[:split] + father.data[split:])
 
 
-@Component.to(Mutator)
+@Mutator.to()
 def bounded_nudge(state: State) -> State:
     """Change a position by 1, but do nothing if exceeds granularity."""
     position = randint(0, Config.dimensions - 1)
@@ -211,7 +250,7 @@ def bounded_nudge(state: State) -> State:
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
 
-@Component.to(Mutator)
+@Mutator.to()
 def wrapped_nudge(state: State) -> State:
     """Change a position by 1, wrapping around if exceeds granularity."""
     position = randint(0, Config.dimensions - 1)
@@ -219,7 +258,7 @@ def wrapped_nudge(state: State) -> State:
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
 
-@Component.to(Mutator)
+@Mutator.to()
 def regenerate(state: State) -> State:
     """Set a position to a random value."""
     position = randint(0, Config.dimensions - 1)
@@ -227,13 +266,13 @@ def regenerate(state: State) -> State:
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
 
-@Component.to(Mutator)
+@Mutator.to()
 def obliterate(_: State) -> State:
     """Regenerate all of the positions."""
     return State.random()
 
 
-@Component.to(Fitness)
+@Fitness.to()
 def multiplication(state: State) -> float:
     """Multiply all of the positions."""
     # Divide and conquer is faster than accumulate for values > 1e1000 or so because
@@ -241,13 +280,13 @@ def multiplication(state: State) -> float:
     return float(reduce(lambda x, y: x * y, state.data, 1))
 
 
-@Component.to(Fitness)
+@Fitness.to()
 def addition(state: State) -> float:
     """Add all of the positions."""
     return float(sum(state.data))
 
 
-@Component.to(Fitness)
+@Fitness.to()
 def prime(state: State) -> float:
     """Count the number of prime numbers in the positions."""
 
@@ -271,35 +310,35 @@ def prime(state: State) -> float:
     return float(sum(map(is_prime, state.data)))
 
 
-@Component.to(Fitness)
+@Fitness.to()
 def all_zero(state: State) -> float:
     """All values are 0."""
     # random.choices with all 0 weights will raise, so I give it a small value.
     return float(all(x == 0 for x in state.data)) or 1e-9
 
 
-@Component.to(GoalTest)
+@GoalTest.to()
 def almost_one(fitstate: _FitState) -> bool:
     """Check if the fitness is almost one."""
     less_than_one = 0.99
     return fitstate[0] >= less_than_one
 
 
-@Component.to(GoalTest)
+@GoalTest.to()
 def almost_product(fitstate: _FitState) -> bool:
     """Check if the fitness is almost the product of the dimensions."""
-    less_than_product = 0.99 * (Config.granularity - 1) * Config.dimensions
+    less_than_product = 0.99 * (Config.granularity - 1.0) ** Config.dimensions
     return fitstate[0] >= less_than_product
 
 
-@Component.to(GoalTest)
+@GoalTest.to()
 def almost_sum(fitstate: _FitState) -> bool:
     """Check if the fitness is almost the sum of the dimensions."""
-    less_than_sum = 0.99 * Config.dimensions
+    less_than_sum = 0.99 * Config.dimensions * (Config.granularity - 1.0)
     return fitstate[0] >= less_than_sum
 
 
-@Component.to(Selector)
+@Selector.to()
 def super_elitism(parents: list[_FitState], children: list[_FitState]) -> list[State]:
     """Select the best individuals from parents and children."""
     # Sorts by fitness first, then state. States all have the same name, but states
@@ -312,7 +351,7 @@ def super_elitism(parents: list[_FitState], children: list[_FitState]) -> list[S
     return [heapq.heappop(heap)[1] for _ in range(carrying_capacity)]
 
 
-@Component.to(Selector)
+@Selector.to()
 def children(_: list[_FitState], children: list[_FitState]) -> list[State]:
     """Select children only."""
     carry_capacity = Config.initial_pop_size
@@ -321,6 +360,18 @@ def children(_: list[_FitState], children: list[_FitState]) -> list[State]:
 
 ## Environment construction. ###########################################################
 
+env1 = Environment(
+    name="Extrema (Default)",
+    data="""
+    Try to get to the top right corner (but in a higher dimensional space) by
+    regenerating states.
+    """,
+    recombinator=random_split,
+    mutator=regenerate,
+    fitness=addition,
+    goal_test=almost_sum,
+    selector=super_elitism,
+)
 
 ## Algorithm definition. ###############################################################
 
@@ -356,8 +407,8 @@ def genetic_search(env: Environment) -> tuple[int, State | None]:
 def collect_all() -> list[Environment]:
     """Collect all Environment instances defined at the global scope.
 
-    This method uses reflection. It may return an incomplete list if it is called too
-    early.
+    This method uses reflection (dark magic). It may return an incomplete list if it is
+    called too early.
     """
     return [
         obj
@@ -371,10 +422,10 @@ def drive() -> None:
     environments = collect_all()
     print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
     for curr_test, environment in enumerate(environments):
-        print(f"Test {curr_test} of {environment.name} ", end="")
+        print(f"Test {curr_test + 1} of {environment.name} ", end="")
         details(str(environment))
         solves, times = zip(*[do_trial(i, environment) for i in range(Config.trials)])
-        avg_time = sum(times) / len(times)
+        avg_time = int(sum(times) / len(times))
         solve_rate = sum(solves) / len(solves)
         print(f"average {avg_time} nanoseconds, {int(100 * solve_rate)}% success rate.")
 
@@ -422,6 +473,7 @@ def parse_args(argv: list[str]) -> bool:
         type=bool,
         default=Config.details,
         help="print extra information, probably not of interest, to stderr",
+        # ^ This will influence performance, by a lot.
     )
     _ = parser.add_argument(
         "--seed",
