@@ -4,13 +4,14 @@ This module is a command line script for empirical tests of genetic algorithms. 
 designed around printing test results to stdout. You can run it with `python3 genetic.py
 --help`.
 
-Requires python>=3.12 for typing.
+Requires python>=3.12 for typing, no third-party dependencies.
 """
 
 ## Preamble. ###########################################################################
 
 from __future__ import annotations
 
+import heapq
 import sys
 from abc import ABC
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
@@ -275,6 +276,47 @@ def all_zero(state: State) -> float:
     """All values are 0."""
     # random.choices with all 0 weights will raise, so I give it a small value.
     return float(all(x == 0 for x in state.data)) or 1e-9
+
+
+@Component.to(GoalTest)
+def almost_one(fitstate: _FitState) -> bool:
+    """Check if the fitness is almost one."""
+    less_than_one = 0.99
+    return fitstate[0] >= less_than_one
+
+
+@Component.to(GoalTest)
+def almost_product(fitstate: _FitState) -> bool:
+    """Check if the fitness is almost the product of the dimensions."""
+    less_than_product = 0.99 * (Config.granularity - 1) * Config.dimensions
+    return fitstate[0] >= less_than_product
+
+
+@Component.to(GoalTest)
+def almost_sum(fitstate: _FitState) -> bool:
+    """Check if the fitness is almost the sum of the dimensions."""
+    less_than_sum = 0.99 * Config.dimensions
+    return fitstate[0] >= less_than_sum
+
+
+@Component.to(Selector)
+def super_elitism(parents: list[_FitState], children: list[_FitState]) -> list[State]:
+    """Select the best individuals from parents and children."""
+    # Sorts by fitness first, then state. States all have the same name, but states
+    # with smaller numbers come earlier. I call this method "super elitism" because
+    # classical elitism is only concerned with preserving parents.
+    heap = parents + children
+    heap = [(-fitness, state) for fitness, state in heap]
+    heapq.heapify(heap)
+    carrying_capacity = Config.initial_pop_size
+    return [heapq.heappop(heap)[1] for _ in range(carrying_capacity)]
+
+
+@Component.to(Selector)
+def children(_: list[_FitState], children: list[_FitState]) -> list[State]:
+    """Select children only."""
+    carry_capacity = Config.initial_pop_size
+    return [state for _, state in children][:carry_capacity]
 
 
 ## Environment construction. ###########################################################
