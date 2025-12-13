@@ -1,17 +1,14 @@
 """Genetic algorithm definition and driver.
 
 This module is a command line script for empirical tests of genetic algorithms. You can
-run it with `python3 genetic.py --help`.
+run it with `python3 genetic.py --help`. I wrote it for research, not real word
+scenarios. Hence, it prioritizes independent components for extensibility, data
+collection for profiling, and the printing of all this information.
 
-It is designed for extensibility with independent components of a genetic algorithm,
-the printing of those components to stdout, and the printing of search results to
-stdout. Since this module is built for research, ease of use in real world scenarios is
-not a priority.
-
-Structurally, this module consists of a preamble, global variables (user configuration),
-component base class, data model (state, recombinator, mutator, fitness, goal test,
-selector, environment), component implementations, environment definitions, a generic
-genetic algorithm implementation, driver that prints results, and frontend.
+Structurally, this module consists of a preamble, global variables (user configuration,
+cache), component base class, data model (state, recombinator, mutator, fitness, goal
+test, selector, environment), component implementations, environment definitions, a
+generic genetic algorithm implementation, driver that prints results, and frontend.
 
 Requires python>=3.12 for typing. No third-party dependencies.
 """
@@ -26,7 +23,9 @@ from abc import ABC
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import dataclass
 from functools import reduce
+from math import sqrt
 from random import choice, choices, randint, seed
+from statistics import median
 from time import perf_counter_ns
 from typing import (
     Callable,
@@ -48,8 +47,7 @@ __all__: list[str] = []  # This module is not meant to be imported.
 ## Globals. ############################################################################
 
 
-@dataclass  # Mutable.
-class Config:
+class Config:  # Mutable.
     """Optional user-supplied configuration from the command line.
 
     See the `parse_args` method in this module for what these attributes mean.
@@ -81,8 +79,30 @@ class Config:
                 ok = False
         return ok
 
-    # Not user configuration, but still a global, and I don't want another class.
+
+class Globals:  # Mutable.
+    """Shared non-user configuration states.
+
+    Must be built before first call to any performance counter.
+    """
+
     prime_table: list[bool] | None = None
+    peaks: list[State] | None = None
+
+    @staticmethod
+    def build() -> None:
+        # Prime table
+        Globals.prime_table = [True] * Config.granularity
+        Globals.prime_table[0] = Globals.prime_table[1] = False
+        prime = 2
+        while prime * prime < Config.granularity:
+            if Globals.prime_table[prime]:
+                for multiple in range(prime * prime, Config.granularity, prime):
+                    Globals.prime_table[multiple] = False
+            prime += 1
+        # Peaks
+        arbritrary_number_of_peaks = 5
+        Globals.peaks = [State.random() for _ in range(arbritrary_number_of_peaks)]
 
 
 def details(message: str) -> None:
@@ -294,18 +314,12 @@ def prime(state: State) -> float:
         # Cached sieve of Eratosthenes is more performant than cached trial division
         # when queries are sufficiently dense.
         if n not in range(Config.granularity):
-            msg = f"Number {n} is out of range({Config.granularity})"
+            msg = f"Number {n} is out of range({Config.granularity})."
             raise ValueError(msg)
-        if Config.prime_table is None:
-            Config.prime_table = [True] * Config.granularity
-            Config.prime_table[0] = Config.prime_table[1] = False
-            prime = 2
-            while prime * prime < Config.granularity:
-                if Config.prime_table[prime]:
-                    for multiple in range(prime * prime, Config.granularity, prime):
-                        Config.prime_table[multiple] = False
-                prime += 1
-        return Config.prime_table[n]
+        if Globals.prime_table is None:
+            msg = "Prime table must be built before algorithm runs."
+            raise ValueError(msg)
+        return Globals.prime_table[n]
 
     return float(sum(map(is_prime, state.data)))
 
@@ -315,6 +329,27 @@ def all_zero(state: State) -> float:
     """All values are 0."""
     # random.choices with all 0 weights will raise, so I give it a small value.
     return float(all(x == 0 for x in state.data)) or 1e-9
+
+
+@Fitness.to()
+def multipeak(state: State) -> float:
+    """Minimum distance to a peak, sparsely distributed."""
+
+    def distance_to(peak: State) -> float:
+        distances = (abs(x - peak.data[0]) for x in state.data)
+        squares = (x**2 for x in distances)
+        return sqrt(sum(squares))
+
+    def score(distance: float) -> float:
+        penalty = 5.0
+        # Distance from origin to the point (1, 1, 1, ...) grows with number of
+        # dimensions, so I length acceptable distance.
+        return max(sqrt(Config.dimensions) / penalty - distance, 1e9)
+
+    if Globals.peaks is None:
+        msg = "Peaks must be built before algorithm runs."
+        raise ValueError(msg)
+    return min(map(score, map(distance_to, Globals.peaks)))
 
 
 @GoalTest.to()
@@ -421,19 +456,21 @@ def drive() -> None:
     """Test the genetic algorithm on the given environments."""
     environments = collect_all()
     print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
+    Globals.build()
     for curr_test, environment in enumerate(environments):
         print(f"Test {curr_test + 1} of {environment.name} ", end="")
         details(str(environment))
-        solves, times = zip(*[do_trial(i, environment) for i in range(Config.trials)])
-        avg_time = int(sum(times) / len(times))
+        trials = [do_trial(i, environment) for i in range(Config.trials)]
+        solves = [trial[0] for trial in trials]
+        times = [trial[1] for trial in trials]
+        mean_time = int(sum(times) / len(times))
+        median_time = int(median(times))
         solve_rate = sum(solves) / len(solves)
-        print(f"average {avg_time} nanoseconds, {int(100 * solve_rate)}% success rate.")
+        print(f"mean {mean_time} median {median_time} nanoseconds ", end="")
+        print(f"{int(100 * solve_rate)}% success rate.")
 
 
-def do_trial(
-    number: int,
-    environment: Environment,
-) -> tuple[bool, float]:
+def do_trial(number: int, environment: Environment) -> tuple[bool, float]:
     """Test the genetic algorithm on a single environment."""
     start_time = perf_counter_ns()
     generations, solution = genetic_search(environment)
