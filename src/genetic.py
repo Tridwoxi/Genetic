@@ -77,6 +77,10 @@ class Config:  # Mutable.
             if value <= 0:
                 print(f"{name} is {value}, but must be a strictly positive integer.")
                 ok = False
+        dimensions_needed_for_recombination = 2
+        if Config.dimensions < dimensions_needed_for_recombination:
+            print(f"Dimensions is {Config.dimensions}, but must be at least 2.")
+            ok = False
         return ok
 
 
@@ -143,7 +147,7 @@ class Component[T](ABC):
             raise TypeError(msg)
         if name is None:
             name = data.__name__ if isinstance(data, Named) else "Unnamed"
-            name = name.replace("_", " ").title().replace("", "").strip()
+            name = name.replace("_", " ").title().replace(" ", "").strip()
         return cls(name, data)
 
     @final
@@ -178,7 +182,7 @@ class State(Component[tuple[int, ...]]):
 
     @staticmethod
     def random() -> State:
-        gen = (randint(0, Config.granularity) for _ in range(Config.dimensions))
+        gen = (randint(0, Config.granularity - 1) for _ in range(Config.dimensions))
         return State.of(tuple(gen))
 
 
@@ -280,7 +284,7 @@ def bounded_nudge(state: State) -> State:
     """Change a position by 1, but do nothing if exceeds granularity."""
     position = randint(0, Config.dimensions - 1)
     new_value = state.data[position] + choice([-1, 1])
-    if new_value not in range(Config.dimensions):
+    if new_value not in range(Config.granularity):
         new_value = state.data[position]
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
@@ -289,7 +293,7 @@ def bounded_nudge(state: State) -> State:
 def wrapped_nudge(state: State) -> State:
     """Change a position by 1, wrapping around if exceeds granularity."""
     position = randint(0, Config.dimensions - 1)
-    new_value = (state.data[position] + choice([-1, 1])) % Config.dimensions
+    new_value = (state.data[position] + choice([-1, 1])) % Config.granularity
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
 
@@ -297,7 +301,7 @@ def wrapped_nudge(state: State) -> State:
 def regenerate(state: State) -> State:
     """Set a position to a random value."""
     position = randint(0, Config.dimensions - 1)
-    new_value = randint(0, Config.dimensions - 1)
+    new_value = randint(0, Config.granularity - 1)
     return State.of((*state.data[:position], new_value, *state.data[position + 1 :]))
 
 
@@ -312,7 +316,7 @@ def multiplication(state: State) -> float:
     """Multiply all of the positions."""
     # Divide and conquer is faster than accumulate for values > 1e1000 or so because
     # big number multiplication is slow, but I hope it will not come to that.
-    return float(reduce(lambda x, y: x * y, state.data, 1)) or 1e-9
+    return float(reduce(lambda x, y: x * y, state.data, 1))
 
 
 @Fitness.to()
@@ -343,7 +347,7 @@ def num_primes(state: State) -> float:
 def all_zero(state: State) -> float:
     """All values are 0."""
     # random.choices with all 0 weights will raise, so I give it a small value.
-    return float(all(x == 0 for x in state.data)) or 1e-9
+    return float(all(x == 0 for x in state.data))
 
 
 @Fitness.to()
@@ -351,8 +355,10 @@ def multi_peak(state: State) -> float:
     """Minimum distance to a peak, sparsely distributed."""
 
     def distance_to(peak: State) -> float:
-        distances = (abs(x - peak.data[0]) for x in state.data)
-        squares = (x**2 for x in distances)
+        squares = (
+            (state_value - peak_value) ** 2
+            for state_value, peak_value in zip(state.data, peak.data, strict=True)
+        )
         return sqrt(sum(squares))
 
     def score(distance: float) -> float:
@@ -360,7 +366,7 @@ def multi_peak(state: State) -> float:
         # Distance from origin to the point (1, 1, 1, ...) grows with number of
         # dimensions, so I normalize proportionally to the max distance.
         normalizer = sqrt(Config.dimensions)  # Play well with almost_one goal test.
-        return max((normalizer - distance) / penalty / normalizer, 1e9)
+        return max((normalizer - distance) / penalty / normalizer, 0.0)
 
     if Globals.peaks is None:
         msg = "Peaks must be built before algorithm runs."
@@ -523,7 +529,8 @@ def genetic_search(env: Environment) -> tuple[list[float], State | None]:
         # Type checker unable to infer type of *zip(*parent_fitpairs).
         fitnesses = [fitpair[0] for fitpair in parent_fitstates]
         states = [fitpair[1] for fitpair in parent_fitstates]
-        matings = [choices(states, fitnesses, k=2) for _ in range(Config.reproductions)]
+        weights = fitnesses if any(w > 0 for w in fitnesses) else None
+        matings = [choices(states, weights, k=2) for _ in range(Config.reproductions)]
         children = (env.recombinator.data(*p) for p in matings)
         children = map(env.mutator.data, children)
         children_fitstates = [(env.fitness.data(state), state) for state in children]
@@ -603,7 +610,7 @@ def parse_args(argv: list[str]) -> bool:
     )
     _ = parser.add_argument(
         "--details",
-        type=bool,
+        action="store_true",
         default=Config.details,
         help="print extra information, probably not of interest, to stderr",
         # ^ This will influence performance, by a lot.
