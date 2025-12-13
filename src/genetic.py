@@ -105,10 +105,10 @@ class Globals:  # Mutable.
         Globals.peaks = [State.random() for _ in range(arbritrary_number_of_peaks)]
 
 
-def details(message: str) -> None:
+def details(tag: str, message: object) -> None:
+    # Tags for easy grepping of captured output. Tab in case stderr and stdout combined.
     if Config.details:
-        print("\t", end="", file=sys.stderr)
-        print(message, file=sys.stderr)
+        print(f"\t<{tag}>{message}", file=sys.stderr)
 
 
 ## Data base class. ####################################################################
@@ -307,7 +307,7 @@ def addition(state: State) -> float:
 
 
 @Fitness.to()
-def prime(state: State) -> float:
+def num_primes(state: State) -> float:
     """Count the number of prime numbers in the positions."""
 
     def is_prime(n: int) -> bool:
@@ -332,7 +332,7 @@ def all_zero(state: State) -> float:
 
 
 @Fitness.to()
-def multipeak(state: State) -> float:
+def multi_peak(state: State) -> float:
     """Minimum distance to a peak, sparsely distributed."""
 
     def distance_to(peak: State) -> float:
@@ -387,7 +387,7 @@ def super_elitism(parents: list[_FitState], children: list[_FitState]) -> list[S
 
 
 @Selector.to()
-def children(_: list[_FitState], children: list[_FitState]) -> list[State]:
+def only_children(_: list[_FitState], children: list[_FitState]) -> list[State]:
     """Select children only."""
     carry_capacity = Config.initial_pop_size
     return [state for _, state in children][:carry_capacity]
@@ -411,20 +411,30 @@ env1 = Environment(
 ## Algorithm definition. ###############################################################
 
 
-def genetic_search(env: Environment) -> tuple[int, State | None]:
-    """Find a satisficing state on a generation, or None if the algorithm failed."""
+def genetic_search(env: Environment) -> tuple[list[float], State | None]:
+    """Find a satisficing state within the given environment.
+
+    Returns:
+        A tuple `(max_fitnesses, result)`, where:
+        - `max_fitnesses` is a list of the maximum fitness in each generation;
+        - `result` is the satisficing state, or None if not found.
+    """
     seed(Config.seed)
     parents = [State.random() for _ in range(Config.initial_pop_size)]
+    max_fitnesses: list[float] = []
     for generation in range(Config.max_generations):
         parent_fitstates = [(env.fitness.data(state), state) for state in parents]
         min_fitness, min_state = min(parent_fitstates)
         max_fitness, max_state = max(parent_fitstates)
-        details(f"Generation {generation}")
-        details(f"Min fitness {min_fitness} in {min_state}")
-        details(f"Max fitness {max_fitness} in {max_state}")
+        max_fitnesses.append(max_fitness)
+        details("generation", generation)
+        details("min fitness", min_fitness)
+        details("min state", min_state)
+        details("max fitness", max_fitness)
+        details("max state", max_state)
         for fitpair in parent_fitstates:
             if env.goal_test.data(fitpair):
-                return generation, fitpair[1]
+                return max_fitnesses, fitpair[1]
         # Type checker unable to infer type of *zip(*parent_fitpairs).
         fitnesses = [fitpair[0] for fitpair in parent_fitstates]
         states = [fitpair[1] for fitpair in parent_fitstates]
@@ -433,7 +443,7 @@ def genetic_search(env: Environment) -> tuple[int, State | None]:
         children = map(env.mutator.data, children)
         children_fitstates = [(env.fitness.data(state), state) for state in children]
         parents = env.selector.data(parent_fitstates, children_fitstates)
-    return Config.max_generations, None
+    return max_fitnesses, None
 
 
 ## Driver. #############################################################################
@@ -459,25 +469,27 @@ def drive() -> None:
     Globals.build()
     for curr_test, environment in enumerate(environments):
         print(f"Test {curr_test + 1} of {environment.name} ", end="")
-        details(str(environment))
+        details("environment", environment)
         trials = [do_trial(i, environment) for i in range(Config.trials)]
         solves = [trial[0] for trial in trials]
         times = [trial[1] for trial in trials]
         mean_time = int(sum(times) / len(times))
-        median_time = int(median(times))
+        details("median time", int(median(times)))
         solve_rate = sum(solves) / len(solves)
-        print(f"mean {mean_time} median {median_time} nanoseconds ", end="")
+        print(f"Mean {mean_time} ns, ", end="")
         print(f"{int(100 * solve_rate)}% success rate.")
 
 
-def do_trial(number: int, environment: Environment) -> tuple[bool, float]:
+def do_trial(number: int, environment: Environment) -> tuple[bool, int]:
     """Test the genetic algorithm on a single environment."""
     start_time = perf_counter_ns()
-    generations, solution = genetic_search(environment)
+    fitnesses, solution = genetic_search(environment)
     end_time = perf_counter_ns()
-    status_report = f"{generations} generations" if solution else "failed"
-    time_report = f"{end_time - start_time} nanoseconds."
-    details(f"Trial {number}: {status_report} in {time_report}")
+    details("num generations", len(fitnesses))
+    details("max fitnesses", fitnesses)
+    details("solved", bool(solution))
+    details("time report (ns)", end_time - start_time)
+    details("trial", number)
     return bool(solution), end_time - start_time
 
 
