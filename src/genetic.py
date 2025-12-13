@@ -86,18 +86,19 @@ class Globals:  # Mutable.
     Must be built before first call to any performance counter.
     """
 
-    prime_table: list[bool] | None = None
-    peaks: list[State] | None = None
+    prime_table: ClassVar[list[bool] | None] = None
+    peaks: ClassVar[list[State] | None] = None
 
     @staticmethod
     def build() -> None:
         # Prime table
-        Globals.prime_table = [True] * Config.granularity
+        length = Config.granularity + 1
+        Globals.prime_table = [True] * length
         Globals.prime_table[0] = Globals.prime_table[1] = False
         prime = 2
-        while prime * prime < Config.granularity:
+        while prime * prime < length:
             if Globals.prime_table[prime]:
-                for multiple in range(prime * prime, Config.granularity, prime):
+                for multiple in range(prime * prime, length, prime):
                     Globals.prime_table[multiple] = False
             prime += 1
         # Peaks
@@ -242,15 +243,29 @@ class Environment(Component[str]):
     goal_test: GoalTest
     selector: Selector
 
+    def but(  # noqa: PLR0913
+        self,
+        name: str,
+        data: str,
+        *,
+        recombinator: Recombinator | None = None,
+        mutator: Mutator | None = None,
+        fitness: Fitness | None = None,
+        goal_test: GoalTest | None = None,
+        selector: Selector | None = None,
+    ) -> Environment:
+        return Environment(
+            name,
+            data,
+            recombinator=recombinator or self.recombinator,
+            mutator=mutator or self.mutator,
+            fitness=fitness or self.fitness,
+            goal_test=goal_test or self.goal_test,
+            selector=selector or self.selector,
+        )
+
 
 ## Component construction. #############################################################
-
-
-@Recombinator.to()
-def halfway_split(mother: State, father: State) -> State:
-    """Draw left schema half from mother, and right schema half from father."""
-    split = Config.dimensions // 2
-    return State.of(mother.data[:split] + father.data[split:])
 
 
 @Recombinator.to()
@@ -297,7 +312,7 @@ def multiplication(state: State) -> float:
     """Multiply all of the positions."""
     # Divide and conquer is faster than accumulate for values > 1e1000 or so because
     # big number multiplication is slow, but I hope it will not come to that.
-    return float(reduce(lambda x, y: x * y, state.data, 1))
+    return float(reduce(lambda x, y: x * y, state.data, 1)) or 1e-9
 
 
 @Fitness.to()
@@ -313,8 +328,8 @@ def num_primes(state: State) -> float:
     def is_prime(n: int) -> bool:
         # Cached sieve of Eratosthenes is more performant than cached trial division
         # when queries are sufficiently dense.
-        if n not in range(Config.granularity):
-            msg = f"Number {n} is out of range({Config.granularity})."
+        if n not in range(Config.granularity + 1):
+            msg = f"Number {n} is out of range({Config.granularity + 1})."
             raise ValueError(msg)
         if Globals.prime_table is None:
             msg = "Prime table must be built before algorithm runs."
@@ -343,8 +358,9 @@ def multi_peak(state: State) -> float:
     def score(distance: float) -> float:
         penalty = 5.0
         # Distance from origin to the point (1, 1, 1, ...) grows with number of
-        # dimensions, so I length acceptable distance.
-        return max(sqrt(Config.dimensions) / penalty - distance, 1e9)
+        # dimensions, so I normalize proportionally to the max distance.
+        normalizer = sqrt(Config.dimensions)  # Play well with almost_one goal test.
+        return max((normalizer - distance) / penalty / normalizer, 1e9)
 
     if Globals.peaks is None:
         msg = "Peaks must be built before algorithm runs."
@@ -373,6 +389,13 @@ def almost_sum(fitstate: _FitState) -> bool:
     return fitstate[0] >= less_than_sum
 
 
+@GoalTest.to()
+def almost_dimension(fitstate: _FitState) -> bool:
+    """Check if the fitness is almost the number of dimensions."""
+    less_than_dimensions = 0.99 * Config.dimensions
+    return fitstate[0] >= less_than_dimensions
+
+
 @Selector.to()
 def super_elitism(parents: list[_FitState], children: list[_FitState]) -> list[State]:
     """Select the best individuals from parents and children."""
@@ -395,8 +418,8 @@ def only_children(_: list[_FitState], children: list[_FitState]) -> list[State]:
 
 ## Environment construction. ###########################################################
 
-env1 = Environment(
-    name="Extrema (Default)",
+DEFAULT = Environment(
+    name="Default",
     data="""
     Try to get to the top right corner (but in a higher dimensional space) by
     regenerating states.
@@ -406,6 +429,68 @@ env1 = Environment(
     fitness=addition,
     goal_test=almost_sum,
     selector=super_elitism,
+)
+
+E1 = DEFAULT.but(
+    name="ChildrenSelector",
+    data="""
+    Only consider children in the next population, which might cause fitness to
+    decrease.
+    """,
+    selector=only_children,
+)
+
+E2 = DEFAULT.but(
+    name="BoundedNudge",
+    data="""
+    Use a really slow mutator that doesn't wrap.
+    """,
+    mutator=bounded_nudge,
+)
+
+E3 = DEFAULT.but(
+    name="Obliterate",
+    data="""
+    Throw out any knowledge from the previous generation, making progress only due to
+    super elitism.
+    """,
+    mutator=obliterate,
+)
+
+E4 = DEFAULT.but(
+    name="Multiplication",
+    data="""
+    Sharper peak, and heavily punishing of 0s.
+    """,
+    fitness=multiplication,
+    goal_test=almost_product,
+)
+
+E5 = DEFAULT.but(
+    name="Primes",
+    data="""
+    Sparse peaks where all values are independent. Perhaps clustering in lower bounds?
+    """,
+    fitness=num_primes,
+    goal_test=almost_dimension,
+)
+
+E6 = DEFAULT.but(
+    name="Peaks",
+    data="""
+    Sparse peaks again, but with correlations.
+    """,
+    fitness=multi_peak,
+    goal_test=almost_one,
+)
+
+E7 = DEFAULT.but(
+    name="Sharp",
+    data="""
+    A very, very, very sharp peak.
+    """,
+    fitness=all_zero,
+    goal_test=almost_one,
 )
 
 ## Algorithm definition. ###############################################################
@@ -468,7 +553,7 @@ def drive() -> None:
     print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
     Globals.build()
     for curr_test, environment in enumerate(environments):
-        print(f"Test {curr_test + 1} of {environment.name} ", end="")
+        print(f"Test {curr_test + 1} of {environment.name}... ", end="")
         details("environment", environment)
         trials = [do_trial(i, environment) for i in range(Config.trials)]
         solves = [trial[0] for trial in trials]
@@ -476,8 +561,7 @@ def drive() -> None:
         mean_time = int(sum(times) / len(times))
         details("median time", int(median(times)))
         solve_rate = sum(solves) / len(solves)
-        print(f"Mean {mean_time} ns, ", end="")
-        print(f"{int(100 * solve_rate)}% success rate.")
+        print(f"mean {mean_time} ns, {solve_rate:.5f}% success rate.")
 
 
 def do_trial(number: int, environment: Environment) -> tuple[bool, int]:
