@@ -39,7 +39,6 @@ from typing import (
 
 # ruff: noqa: T201 S311
 # TODO: explain what environments are tested in module doc
-# TODO: sort config and arguments alphabetically
 
 __all__: list[str] = []  # This module is not meant to be imported.
 
@@ -54,22 +53,22 @@ class Config:  # Mutable.
 
     dimensions: ClassVar[int] = 10
     granularity: ClassVar[int] = 10
-    details: ClassVar[bool] = False
+    initial_pop_size: ClassVar[int] = 10
+    max_generations: ClassVar[int] = 10
+    reproductions: ClassVar[int] = 10
     seed: ClassVar[int | None] = None
     trials: ClassVar[int] = 1
-    reproductions: ClassVar[int] = 10
-    max_generations: ClassVar[int] = 10
-    initial_pop_size: ClassVar[int] = 10
+    details: ClassVar[bool] = False
 
     @staticmethod
     def validate() -> bool:
         checks = [
             (Config.dimensions, "Dimensions"),
             (Config.granularity, "Granularity"),
-            (Config.trials, "Trials"),
             (Config.initial_pop_size, "Initial population size"),
             (Config.max_generations, "Max generations"),
             (Config.reproductions, "Reproductions"),
+            (Config.trials, "Trials"),
         ]
         ok = True
         for value, name in checks:
@@ -619,11 +618,22 @@ def parse_args(argv: list[str]) -> bool:
         help="how many distinct values each dimension can take on",
     )
     _ = parser.add_argument(
-        "--details",
-        action="store_true",
-        default=Config.details,
-        help="print extra information, probably not of interest, to stderr",
-        # ^ This will influence performance, by a lot.
+        "--initial-pop-size",
+        type=int,
+        default=Config.initial_pop_size,
+        help="size of the initial population",
+    )
+    _ = parser.add_argument(
+        "--max-generations",
+        type=int,
+        default=Config.max_generations,
+        help="maximum generations to run the algorithm for",
+    )
+    _ = parser.add_argument(
+        "--reproductions",
+        type=int,
+        default=Config.reproductions,
+        help="number of offspring to produce per generation",
     )
     _ = parser.add_argument(
         "--seed",
@@ -638,32 +648,21 @@ def parse_args(argv: list[str]) -> bool:
         help="number of trials to run per algorithm configuration",
     )
     _ = parser.add_argument(
-        "--reproductions",
-        type=int,
-        default=Config.reproductions,
-        help="number of offspring to produce per generation",
-    )
-    _ = parser.add_argument(
-        "--max-generations",
-        type=int,
-        default=Config.max_generations,
-        help="maximum generations to run the algorithm for",
-    )
-    _ = parser.add_argument(
-        "--initial-pop-size",
-        type=int,
-        default=Config.initial_pop_size,
-        help="size of the initial population",
+        "--details",
+        action="store_true",
+        default=Config.details,
+        help="print extra information, probably not of interest, to stderr",
+        # ^ This will influence performance, by a lot.
     )
     args = parser.parse_args(argv[1:])
     Config.dimensions = args.dimensions  # pyright: ignore[reportAny]
     Config.granularity = args.granularity  # pyright: ignore[reportAny]
-    Config.details = args.details  # pyright: ignore[reportAny]
+    Config.initial_pop_size = args.initial_pop_size  # pyright: ignore[reportAny]
+    Config.max_generations = args.max_generations  # pyright: ignore[reportAny]
+    Config.reproductions = args.reproductions  # pyright: ignore[reportAny]
     Config.seed = args.seed  # pyright: ignore[reportAny]
     Config.trials = args.trials  # pyright: ignore[reportAny]
-    Config.reproductions = args.reproductions  # pyright: ignore[reportAny]
-    Config.max_generations = args.max_generations  # pyright: ignore[reportAny]
-    Config.initial_pop_size = args.initial_pop_size  # pyright: ignore[reportAny]
+    Config.details = args.details  # pyright: ignore[reportAny]
     return Config.validate()
 
 
