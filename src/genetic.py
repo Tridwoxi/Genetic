@@ -40,7 +40,6 @@ from typing import (
 # ruff: noqa: T201 S311
 # TODO: explain what environments are tested in module doc
 # TODO: sort config and arguments alphabetically
-# TODO: bugfix
 
 __all__: list[str] = []  # This module is not meant to be imported.
 
@@ -267,6 +266,17 @@ class Environment(Component[str]):
             goal_test=goal_test or self.goal_test,
             selector=selector or self.selector,
         )
+
+    @override
+    def __str__(self) -> str:
+        items = (
+            self.recombinator,
+            self.mutator,
+            self.fitness,
+            self.goal_test,
+            self.selector,
+        )
+        return f"{super().__str__()}({' '.join(map(str, items))})"
 
 
 ## Component construction. #############################################################
