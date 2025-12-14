@@ -58,7 +58,7 @@ class Config:  # Mutable.
     reproductions: ClassVar[int] = 10
     seed: ClassVar[int | None] = None
     trials: ClassVar[int] = 1
-    details: ClassVar[bool] = False
+    verbose: ClassVar[bool] = False
 
     @staticmethod
     def validate() -> bool:
@@ -108,9 +108,9 @@ class Globals:  # Mutable.
         Globals.peaks = [State.random() for _ in range(arbritrary_number_of_peaks)]
 
 
-def details(tag: str, message: object) -> None:
+def verbose(tag: str, message: object) -> None:
     # Tags for easy grepping of captured output. Tab in case stderr and stdout combined.
-    if Config.details:
+    if Config.verbose:
         print(f"\t<{tag}>{message}", file=sys.stderr)
 
 
@@ -527,11 +527,11 @@ def genetic_search(env: Environment) -> tuple[list[float], State | None]:
         min_fitness, min_state = min(parent_fitstates)
         max_fitness, max_state = max(parent_fitstates)
         max_fitnesses.append(max_fitness)
-        details("generation", generation)
-        details("min fitness", min_fitness)
-        details("min state", min_state)
-        details("max fitness", max_fitness)
-        details("max state", max_state)
+        verbose("generation", generation)
+        verbose("min fitness", min_fitness)
+        verbose("min state", min_state)
+        verbose("max fitness", max_fitness)
+        verbose("max state", max_state)
         for fitpair in parent_fitstates:
             if env.goal_test.data(fitpair):
                 return max_fitnesses, fitpair[1]
@@ -570,12 +570,12 @@ def drive() -> None:
     Globals.build()
     for curr_test, environment in enumerate(environments):
         print(f"Test {curr_test + 1} of {environment.name}... ", end="")
-        details("environment", environment)
+        verbose("environment", environment)
         trials = [do_trial(i, environment) for i in range(Config.trials)]
         solves = [trial[0] for trial in trials]
         times = [trial[1] for trial in trials]
         mean_time = int(sum(times) / len(times))
-        details("median time", int(median(times)))
+        verbose("median time", int(median(times)))
         solve_rate = sum(solves) / len(solves)
         print(f"mean {mean_time} ns, {solve_rate:.5f}% success rate.")
 
@@ -585,11 +585,11 @@ def do_trial(number: int, environment: Environment) -> tuple[bool, int]:
     start_time = perf_counter_ns()
     fitnesses, solution = genetic_search(environment)
     end_time = perf_counter_ns()
-    details("num generations", len(fitnesses))
-    details("max fitnesses", fitnesses)
-    details("solved", bool(solution))
-    details("time report (ns)", end_time - start_time)
-    details("trial", number)
+    verbose("num generations", len(fitnesses))
+    verbose("max fitnesses", fitnesses)
+    verbose("solved", bool(solution))
+    verbose("time report (ns)", end_time - start_time)
+    verbose("trial", number)
     return bool(solution), end_time - start_time
 
 
@@ -648,9 +648,9 @@ def parse_args(argv: list[str]) -> bool:
         help="number of trials to run per algorithm configuration",
     )
     _ = parser.add_argument(
-        "--details",
+        "--verbose",
         action="store_true",
-        default=Config.details,
+        default=Config.verbose,
         help="print extra information, probably not of interest, to stderr",
         # ^ This will influence performance, by a lot.
     )
@@ -662,7 +662,7 @@ def parse_args(argv: list[str]) -> bool:
     Config.reproductions = args.reproductions  # pyright: ignore[reportAny]
     Config.seed = args.seed  # pyright: ignore[reportAny]
     Config.trials = args.trials  # pyright: ignore[reportAny]
-    Config.details = args.details  # pyright: ignore[reportAny]
+    Config.verbose = args.verbose  # pyright: ignore[reportAny]
     return Config.validate()
 
 
