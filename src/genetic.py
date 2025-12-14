@@ -10,6 +10,10 @@ cache), component base class, data model (state, recombinator, mutator, fitness,
 test, selector, environment), component implementations, environment definitions, a
 generic genetic algorithm implementation, driver that prints results, and frontend.
 
+When run as a script, this module will test prebuilt variations on a default
+environment in which evolution favors states at a positive extreme. These variations
+include changes for every component type defined in the data model.
+
 Requires python>=3.12 for typing. No third-party dependencies.
 """
 
@@ -38,7 +42,6 @@ from typing import (
 )
 
 # ruff: noqa: T201 S311
-# TODO: explain what environments are tested in module doc
 
 __all__: list[str] = []  # This module is not meant to be imported.
 
@@ -282,6 +285,12 @@ class Environment(Component[str]):
 
 
 @Recombinator.to()
+def dominate(mother: State, father: State) -> State:
+    """Draw the schema from a parent at random."""
+    return choice([mother, father])
+
+
+@Recombinator.to()
 def random_split(mother: State, father: State) -> State:
     """Draw left schema part from mother, and right schema part from father."""
     split = randint(1, Config.dimensions - 1)
@@ -505,6 +514,15 @@ E7 = DEFAULT.but(
     A very, very, very sharp peak.
     """,
     fitness=all_zero,
+    goal_test=almost_one,
+)
+
+E8 = DEFAULT.but(
+    name="Dominant",
+    data="""
+    Draw the child schema entirely from one parent, as if no recombination takes place.
+    """,
+    fitness=multi_peak,
     goal_test=almost_one,
 )
 
