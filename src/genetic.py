@@ -58,6 +58,7 @@ class Config:  # Mutable.
     granularity: ClassVar[int] = 10
     initial_pop_size: ClassVar[int] = 10
     max_generations: ClassVar[int] = 10
+    only_environment: ClassVar[int | None] = None
     reproductions: ClassVar[int] = 10
     seed: ClassVar[int | None] = None
     trials: ClassVar[int] = 1
@@ -441,14 +442,14 @@ _BASE = _Environment(
     selector=super_elitism,
 )
 
-DEFAULT = Environment(
+E0 = Environment(
     name="""
     Default environment. The algorithm tries to get to the top right corner (but in a
     higher dimensional space) by regenerating states.""",
     data=_BASE,
 )
 
-E1 = DEFAULT.but(
+E1 = E0.but(
     name="""
     Children selector. Only consider children in the next population, which might cause
     fitness to decrease.
@@ -456,14 +457,14 @@ E1 = DEFAULT.but(
     selector=only_children,
 )
 
-E2 = DEFAULT.but(
+E2 = E0.but(
     name="""
     Bounded nudge. Use a really slow mutator that doesn't wrap.
     """,
     mutator=bounded_nudge,
 )
 
-E3 = DEFAULT.but(
+E3 = E0.but(
     name="""
     Obliterate. Throw out any knowledge from the previous generation, making progress
     only due to super elitism.
@@ -471,7 +472,7 @@ E3 = DEFAULT.but(
     mutator=obliterate,
 )
 
-E4 = DEFAULT.but(
+E4 = E0.but(
     name="""
     Multiplication. Sharper peak, and heavily punishing of 0s.
     """,
@@ -479,7 +480,7 @@ E4 = DEFAULT.but(
     goal_test=almost_product,
 )
 
-E5 = DEFAULT.but(
+E5 = E0.but(
     name="""
     Primes. Sparse peaks where all values are independent. Perhaps clustering in lower
     bounds?
@@ -488,7 +489,7 @@ E5 = DEFAULT.but(
     goal_test=almost_dimension,
 )
 
-E6 = DEFAULT.but(
+E6 = E0.but(
     name="""
     Peaks. Sparse peaks again, but with correlations.
     """,
@@ -496,7 +497,7 @@ E6 = DEFAULT.but(
     goal_test=almost_one,
 )
 
-E7 = DEFAULT.but(
+E7 = E0.but(
     name="""
     Sharp. A very, very, very sharp peak.
     """,
@@ -504,7 +505,7 @@ E7 = DEFAULT.but(
     goal_test=almost_one,
 )
 
-E8 = DEFAULT.but(
+E8 = E0.but(
     name="""
     Dominant. Draw the child schema entirely from one parent, as if no recombination
     takes place.
@@ -555,22 +556,31 @@ def genetic_search(env: Environment) -> tuple[list[float], State | None]:
 ## Driver. #############################################################################
 
 
-def collect_all() -> list[Environment]:
-    """Collect all Environment instances defined at the global scope.
+def collect_envs() -> list[Environment]:
+    """Collect Environment instances the user wants.
 
-    This method uses reflection (dark magic). It may return an incomplete list if it is
-    called too early.
+    By default, gets all instances defined at the global scope. If
+    Config.only_environment is set, it returns only the environment with the given
+    number. This method uses reflection (dark magic). It may return an incomplete list
+    if it is called too early. It does not break the type system, but does require
+    selectable environments be named E[Number], such as E2.
     """
-    return [
-        obj
-        for obj in globals().values()  # pyright: ignore[reportAny]
-        if isinstance(obj, Environment)
-    ]
+    envs: list[Environment] = []
+    requested = f"E{Config.only_environment}"
+    for identifier, obj in globals().items():  # pyright: ignore[reportAny]
+        if Config.only_environment is not None and identifier != requested:
+            continue
+        if isinstance(obj, Environment):
+            envs.append(obj)
+    if not envs:
+        msg = f'No environments found (you asked for "{requested}")'
+        raise ValueError(msg)
+    return envs
 
 
 def drive() -> None:
     """Test the genetic algorithm on the given environments."""
-    environments = collect_all()
+    environments = collect_envs()
     print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
     Globals.build()
     for curr_test, environment in enumerate(environments):
@@ -635,6 +645,12 @@ def parse_args(argv: list[str]) -> bool:
         help="maximum generations to run the algorithm for",
     )
     _ = parser.add_argument(
+        "--only-environment",
+        type=int,
+        default=Config.only_environment,
+        help="test only the environment named E[Number], such as E2",
+    )
+    _ = parser.add_argument(
         "--reproductions",
         type=int,
         default=Config.reproductions,
@@ -664,6 +680,7 @@ def parse_args(argv: list[str]) -> bool:
     Config.granularity = args.granularity  # pyright: ignore[reportAny]
     Config.initial_pop_size = args.initial_pop_size  # pyright: ignore[reportAny]
     Config.max_generations = args.max_generations  # pyright: ignore[reportAny]
+    Config.only_environment = args.only_environment  # pyright: ignore[reportAny]
     Config.reproductions = args.reproductions  # pyright: ignore[reportAny]
     Config.seed = args.seed  # pyright: ignore[reportAny]
     Config.trials = args.trials  # pyright: ignore[reportAny]
