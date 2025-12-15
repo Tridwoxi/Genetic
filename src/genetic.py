@@ -58,7 +58,7 @@ class Config:  # Mutable.
     granularity: ClassVar[int] = 10
     initial_pop_size: ClassVar[int] = 10
     max_generations: ClassVar[int] = 10
-    only_environment: ClassVar[int | None] = None
+    only_environment: ClassVar[str] = ""
     reproductions: ClassVar[int] = 10
     seed: ClassVar[int | None] = None
     trials: ClassVar[int] = 1
@@ -94,9 +94,13 @@ class Globals:  # Mutable.
 
     prime_table: ClassVar[list[bool] | None] = None
     peaks: ClassVar[list[State] | None] = None
+    _built: ClassVar[bool] = False
 
     @staticmethod
     def build() -> None:
+        if Globals._built:
+            return
+        Globals._built = True
         # Prime table
         length = Config.granularity + 1
         Globals.prime_table = [True] * length
@@ -253,6 +257,8 @@ class _Environment:
 class Environment(Component[_Environment]):
     """Specification of components: what is the algorithm?"""
 
+    registry: ClassVar[list[Environment]] = []
+
     def but(  # noqa: PLR0913
         self,
         name: str,
@@ -271,6 +277,9 @@ class Environment(Component[_Environment]):
             selector=selector or self.data.selector,
         )
         return Environment(name, data)
+
+    def register(self) -> None:
+        self.registry.append(self)
 
 
 ## Component construction. #############################################################
@@ -442,76 +451,77 @@ _BASE = _Environment(
     selector=super_elitism,
 )
 
-E0 = Environment(
+DEFAULT = Environment(
     name="""
     Default environment. The algorithm tries to get to the top right corner (but in a
     higher dimensional space) by regenerating states.""",
     data=_BASE,
 )
+DEFAULT.register()
 
-E1 = E0.but(
+DEFAULT.but(
     name="""
     Children selector. Only consider children in the next population, which might cause
     fitness to decrease.
     """,
     selector=only_children,
-)
+).register()
 
-E2 = E0.but(
+DEFAULT.but(
     name="""
     Bounded nudge. Use a really slow mutator that doesn't wrap.
     """,
     mutator=bounded_nudge,
-)
+).register()
 
-E3 = E0.but(
+DEFAULT.but(
     name="""
     Obliterate. Throw out any knowledge from the previous generation, making progress
     only due to super elitism.
     """,
     mutator=obliterate,
-)
+).register()
 
-E4 = E0.but(
+DEFAULT.but(
     name="""
     Multiplication. Sharper peak, and heavily punishing of 0s.
     """,
     fitness=multiplication,
     goal_test=almost_product,
-)
+).register()
 
-E5 = E0.but(
+DEFAULT.but(
     name="""
     Primes. Sparse peaks where all values are independent. Perhaps clustering in lower
     bounds?
     """,
     fitness=num_primes,
     goal_test=almost_dimension,
-)
+).register()
 
-E6 = E0.but(
+DEFAULT.but(
     name="""
     Peaks. Sparse peaks again, but with correlations.
     """,
     fitness=multi_peak,
     goal_test=almost_one,
-)
+).register()
 
-E7 = E0.but(
+DEFAULT.but(
     name="""
     Sharp. A very, very, very sharp peak.
     """,
     fitness=all_zero,
     goal_test=almost_one,
-)
+).register()
 
-E8 = E0.but(
+DEFAULT.but(
     name="""
     Dominant. Draw the child schema entirely from one parent, as if no recombination
     takes place.
     """,
     recombinator=dominate,
-)
+).register()
 
 ## Algorithm definition. ###############################################################
 
@@ -557,33 +567,24 @@ def genetic_search(env: Environment) -> tuple[list[float], State | None]:
 
 
 def collect_envs() -> list[Environment]:
-    """Collect Environment instances the user wants.
+    """Collect Environment instances the user wants."""
 
-    By default, gets all instances defined at the global scope. If
-    Config.only_environment is set, it returns only the environment with the given
-    number. This method uses reflection (dark magic). It may return an incomplete list
-    if it is called too early. It does not break the type system, but does require
-    selectable environments be named E[Number], such as E2.
-    """
-    envs: list[Environment] = []
-    requested = f"E{Config.only_environment}"
-    for identifier, obj in globals().items():  # pyright: ignore[reportAny]
-        if Config.only_environment is not None and identifier != requested:
-            continue
-        if isinstance(obj, Environment):
-            envs.append(obj)
+    def selected(env: Environment) -> bool:
+        return env.name.lower().strip().startswith(Config.only_environment.lower())
+
+    envs = list(filter(selected, Environment.registry))
     if not envs:
-        msg = f'No environments found (you asked for "{requested}")'
-        raise ValueError(msg)
+        request = Config.only_environment.lower()
+        print(f'No environments found (you asked for "{request}")', file=sys.stderr)
     return envs
 
 
 def drive() -> None:
     """Test the genetic algorithm on the given environments."""
-    environments = collect_envs()
-    print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
+    envs = collect_envs()
+    print(f"Running {len(envs)} tests, each of {Config.trials} trials...")
     Globals.build()
-    for curr_test, environment in enumerate(environments):
+    for curr_test, environment in enumerate(envs):
         print(f"Test {curr_test + 1} of {environment}... ", end="")
         verbose("environment", environment)
         trials = [do_trial(i, environment) for i in range(Config.trials)]
@@ -646,9 +647,9 @@ def parse_args(argv: list[str]) -> bool:
     )
     _ = parser.add_argument(
         "--only-environment",
-        type=int,
+        type=str,
         default=Config.only_environment,
-        help="test only the environment named E[Number], such as E2",
+        help="test only environments with names starting with the given string",
     )
     _ = parser.add_argument(
         "--reproductions",
