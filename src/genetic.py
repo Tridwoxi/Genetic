@@ -111,17 +111,23 @@ class Globals:  # Mutable.
         Globals.peaks = [State.random() for _ in range(arbritrary_number_of_peaks)]
 
 
+def dedent(text: str) -> str:
+    # Assumes indent is a multiple of 4 and consistent, which is always true for
+    # strings in this module (though not generally). No newlines is good for logging.
+    return text.replace("    ", "").replace("\n", " ").strip()
+
+
 def verbose(tag: str, message: object) -> None:
     # Tags for easy grepping of captured output. Tab in case stderr and stdout combined.
     if Config.verbose:
-        print(f"\t<{tag}>{message}", file=sys.stderr)
+        print(f"\t<{tag}>{dedent(str(message))}", file=sys.stderr)
 
 
 ## Data base class. ####################################################################
 
 
 @runtime_checkable
-class Named(Protocol):
+class SupportsName(Protocol):
     __name__: str
 
 
@@ -134,7 +140,7 @@ class Component[T](ABC):
 
     @override
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}[{self.name}]"
+        return f"{self.__class__.__name__}[{dedent(self.name)}]"
 
     @final
     @classmethod
@@ -147,9 +153,9 @@ class Component[T](ABC):
             msg = "Incompatible constructor (were additional fields defined?)."
             raise TypeError(msg)
         if name is None:
-            name = data.__name__ if isinstance(data, Named) else "Unnamed"
+            name = data.__name__ if isinstance(data, SupportsName) else "Unnamed"
             name = name.replace("_", " ").title().replace(" ", "").strip()
-        return cls(name, data)
+        return cls(dedent(name), data)
 
     @final
     @classmethod
@@ -235,23 +241,20 @@ class Selector(Component[Callable[[list[_FitState], list[_FitState]], list[State
 
 
 @dataclass(frozen=True, slots=True)
-class Environment(Component[str]):
-    """Specification of components: what is the algorithm?
-
-    An environment's data field is a description. An environment contains additional
-    fields, so must be constructed with __init__ instead of Component.of.
-    """
-
+class _Environment:
     recombinator: Recombinator
     mutator: Mutator
     fitness: Fitness
     goal_test: GoalTest
     selector: Selector
 
+
+class Environment(Component[_Environment]):
+    """Specification of components: what is the algorithm?"""
+
     def but(  # noqa: PLR0913
         self,
         name: str,
-        data: str,
         *,
         recombinator: Recombinator | None = None,
         mutator: Mutator | None = None,
@@ -259,26 +262,14 @@ class Environment(Component[str]):
         goal_test: GoalTest | None = None,
         selector: Selector | None = None,
     ) -> Environment:
-        return Environment(
-            name,
-            data,
-            recombinator=recombinator or self.recombinator,
-            mutator=mutator or self.mutator,
-            fitness=fitness or self.fitness,
-            goal_test=goal_test or self.goal_test,
-            selector=selector or self.selector,
+        data = _Environment(
+            recombinator=recombinator or self.data.recombinator,
+            mutator=mutator or self.data.mutator,
+            fitness=fitness or self.data.fitness,
+            goal_test=goal_test or self.data.goal_test,
+            selector=selector or self.data.selector,
         )
-
-    @override
-    def __str__(self) -> str:
-        items = (
-            self.recombinator,
-            self.mutator,
-            self.fitness,
-            self.goal_test,
-            self.selector,
-        )
-        return f"{super().__str__()}({' '.join(map(str, items))})"
+        return Environment(name, data)
 
 
 ## Component construction. #############################################################
@@ -442,12 +433,7 @@ def only_children(_: list[_FitState], children: list[_FitState]) -> list[State]:
 
 ## Environment construction. ###########################################################
 
-DEFAULT = Environment(
-    name="Default",
-    data="""
-    Try to get to the top right corner (but in a higher dimensional space) by
-    regenerating states.
-    """,
+_BASE = _Environment(
     recombinator=random_split,
     mutator=regenerate,
     fitness=addition,
@@ -455,75 +441,75 @@ DEFAULT = Environment(
     selector=super_elitism,
 )
 
+DEFAULT = Environment(
+    name="""
+    Default environment. The algorithm tries to get to the top right corner (but in a
+    higher dimensional space) by regenerating states.""",
+    data=_BASE,
+)
+
 E1 = DEFAULT.but(
-    name="ChildrenSelector",
-    data="""
-    Only consider children in the next population, which might cause fitness to
-    decrease.
+    name="""
+    Children selector. Only consider children in the next population, which might cause
+    fitness to decrease.
     """,
     selector=only_children,
 )
 
 E2 = DEFAULT.but(
-    name="BoundedNudge",
-    data="""
-    Use a really slow mutator that doesn't wrap.
+    name="""
+    Bounded nudge. Use a really slow mutator that doesn't wrap.
     """,
     mutator=bounded_nudge,
 )
 
 E3 = DEFAULT.but(
-    name="Obliterate",
-    data="""
-    Throw out any knowledge from the previous generation, making progress only due to
-    super elitism.
+    name="""
+    Obliterate. Throw out any knowledge from the previous generation, making progress
+    only due to super elitism.
     """,
     mutator=obliterate,
 )
 
 E4 = DEFAULT.but(
-    name="Multiplication",
-    data="""
-    Sharper peak, and heavily punishing of 0s.
+    name="""
+    Multiplication. Sharper peak, and heavily punishing of 0s.
     """,
     fitness=multiplication,
     goal_test=almost_product,
 )
 
 E5 = DEFAULT.but(
-    name="Primes",
-    data="""
-    Sparse peaks where all values are independent. Perhaps clustering in lower bounds?
+    name="""
+    Primes. Sparse peaks where all values are independent. Perhaps clustering in lower
+    bounds?
     """,
     fitness=num_primes,
     goal_test=almost_dimension,
 )
 
 E6 = DEFAULT.but(
-    name="Peaks",
-    data="""
-    Sparse peaks again, but with correlations.
+    name="""
+    Peaks. Sparse peaks again, but with correlations.
     """,
     fitness=multi_peak,
     goal_test=almost_one,
 )
 
 E7 = DEFAULT.but(
-    name="Sharp",
-    data="""
-    A very, very, very sharp peak.
+    name="""
+    Sharp. A very, very, very sharp peak.
     """,
     fitness=all_zero,
     goal_test=almost_one,
 )
 
 E8 = DEFAULT.but(
-    name="Dominant",
-    data="""
-    Draw the child schema entirely from one parent, as if no recombination takes place.
+    name="""
+    Dominant. Draw the child schema entirely from one parent, as if no recombination
+    takes place.
     """,
-    fitness=multi_peak,
-    goal_test=almost_one,
+    recombinator=dominate,
 )
 
 ## Algorithm definition. ###############################################################
@@ -538,10 +524,11 @@ def genetic_search(env: Environment) -> tuple[list[float], State | None]:
         - `result` is the satisficing state, or None if not found.
     """
     seed(Config.seed)
+    _env = env.data
     parents = [State.random() for _ in range(Config.initial_pop_size)]
     max_fitnesses: list[float] = []
     for generation in range(Config.max_generations):
-        parent_fitstates = [(env.fitness.data(state), state) for state in parents]
+        parent_fitstates = [(_env.fitness.data(state), state) for state in parents]
         min_fitness, min_state = min(parent_fitstates)
         max_fitness, max_state = max(parent_fitstates)
         max_fitnesses.append(max_fitness)
@@ -551,17 +538,17 @@ def genetic_search(env: Environment) -> tuple[list[float], State | None]:
         verbose("max fitness", max_fitness)
         verbose("max state", max_state)
         for fitpair in parent_fitstates:
-            if env.goal_test.data(fitpair):
+            if _env.goal_test.data(fitpair):
                 return max_fitnesses, fitpair[1]
         # Type checker unable to infer type of *zip(*parent_fitpairs).
         fitnesses = [fitpair[0] for fitpair in parent_fitstates]
         states = [fitpair[1] for fitpair in parent_fitstates]
         weights = fitnesses if any(w > 0 for w in fitnesses) else None
         matings = [choices(states, weights, k=2) for _ in range(Config.reproductions)]
-        children = (env.recombinator.data(*p) for p in matings)
-        children = map(env.mutator.data, children)
-        children_fitstates = [(env.fitness.data(state), state) for state in children]
-        parents = env.selector.data(parent_fitstates, children_fitstates)
+        children = (_env.recombinator.data(*p) for p in matings)
+        children = map(_env.mutator.data, children)
+        children_fitstates = [(_env.fitness.data(state), state) for state in children]
+        parents = _env.selector.data(parent_fitstates, children_fitstates)
     return max_fitnesses, None
 
 
@@ -587,7 +574,7 @@ def drive() -> None:
     print(f"Running {len(environments)} tests, each of {Config.trials} trials...")
     Globals.build()
     for curr_test, environment in enumerate(environments):
-        print(f"Test {curr_test + 1} of {environment.name}... ", end="")
+        print(f"Test {curr_test + 1} of {environment}... ", end="")
         verbose("environment", environment)
         trials = [do_trial(i, environment) for i in range(Config.trials)]
         solves = [trial[0] for trial in trials]
