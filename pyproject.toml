@@ -1,5 +1,5 @@
-[tool.ruff.lint]
-select = ["ALL"]
+[tool.ruff]
 
-[tool.ruff.lint.pydocstyle]
-convention = "google"
+target-version = "py312"
+lint.select = ["ALL"]
+lint.pydocstyle.convention = "google"

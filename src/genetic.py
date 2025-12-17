@@ -13,8 +13,6 @@ generic genetic algorithm implementation, driver that prints results, and fronte
 When run as a script, this module will test prebuilt variations on a default
 environment in which evolution favors states at a positive extreme. These variations
 include changes for every component type defined in the data model.
-
-Requires python>=3.12 for typing. No third-party dependencies.
 """
 
 ## Preamble. ###########################################################################
@@ -25,6 +23,7 @@ import heapq
 import sys
 from abc import ABC
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import reduce
 from math import sqrt
@@ -32,7 +31,6 @@ from random import choice, choices, randint, seed
 from statistics import median
 from time import perf_counter_ns
 from typing import (
-    Callable,
     ClassVar,
     Protocol,
     Self,
