@@ -17,7 +17,7 @@ if len(sys.argv) <= 1:
 
 
 def transpose[T](xss: Iterable[Iterable[T]]) -> Iterable[Iterable[T]]:
-    return zip(*xss)
+    return zip(*xss, strict=True)
 
 
 tag = "<max fitnesses>"

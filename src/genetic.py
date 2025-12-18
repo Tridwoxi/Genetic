@@ -451,38 +451,35 @@ _BASE = _Environment(
 
 DEFAULT = Environment(
     name="""
-    Default environment. The algorithm tries to get to the top right corner (but in a
-    higher dimensional space) by regenerating states.""",
+    Default environment. The algorithm tries to get to the top right corner.""",
     data=_BASE,
 )
 DEFAULT.register()
 
 DEFAULT.but(
     name="""
-    Children selector. Only consider children in the next population, which might cause
-    fitness to decrease.
+    Only consider children in the next population.
     """,
     selector=only_children,
 ).register()
 
 DEFAULT.but(
     name="""
-    Bounded nudge. Use a really slow mutator that doesn't wrap.
+    Use a really slow mutator that doesn't wrap.
     """,
     mutator=bounded_nudge,
 ).register()
 
 DEFAULT.but(
     name="""
-    Obliterate. Throw out any knowledge from the previous generation, making progress
-    only due to super elitism.
+    Throw out any knowledge from the previous generation.
     """,
     mutator=obliterate,
 ).register()
 
 DEFAULT.but(
     name="""
-    Multiplication. Sharper peak, and heavily punishing of 0s.
+    Multiplication as fitness for a sharper peak.
     """,
     fitness=multiplication,
     goal_test=almost_product,
@@ -490,8 +487,7 @@ DEFAULT.but(
 
 DEFAULT.but(
     name="""
-    Primes. Sparse peaks where all values are independent. Perhaps clustering in lower
-    bounds?
+    Reward prime numbered variables.
     """,
     fitness=num_primes,
     goal_test=almost_dimension,
@@ -499,7 +495,7 @@ DEFAULT.but(
 
 DEFAULT.but(
     name="""
-    Peaks. Sparse peaks again, but with correlations.
+    Many sharp but sparse peaks.
     """,
     fitness=multi_peak,
     goal_test=almost_one,
@@ -507,7 +503,7 @@ DEFAULT.but(
 
 DEFAULT.but(
     name="""
-    Sharp. A very, very, very sharp peak.
+    Require exactly the origin, and nothing else.
     """,
     fitness=all_zero,
     goal_test=almost_one,
@@ -515,7 +511,7 @@ DEFAULT.but(
 
 DEFAULT.but(
     name="""
-    Dominant. Draw the child schema entirely from one parent, as if no recombination
+    Draw the child schema entirely from one parent, as if no recombination
     takes place.
     """,
     recombinator=dominate,
