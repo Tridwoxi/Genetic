@@ -8,7 +8,7 @@ With a well-chosen fitness function, computer scientists hope to use genetic alg
 
 ## Setup
 
-This repository contains the following non-hidden files:
+[This repository](https://github.com/Tridwoxi/Genetic) contains the following non-hidden files:
 
 - `README.md`: This file.
 - `pyproject.toml`: Project configuration.
@@ -53,8 +53,8 @@ subroutine "genetic search" accepts (
 }
 ```
 
-Contrary to the model, a real-world implementation of a genetic algorithm may hardcode most parameters to solve a particular task. I require the arguments because I want to see what happens when I change them.
+Contrary to the model, a real-world implementation of a genetic algorithm may hardcode most aspects to solve a particular task. I supply them as arguments because I want to see what happens when I change them.
 
-My python implementation also differs slightly. Being designed for analysis, it has printing side effects, an unconventional parameter passing pattern, and returns more than it should. Motivation and details can be found in the source file.
+My python implementation also differs slightly from the model. Being designed for analysis, it has printing side effects, an unconventional parameter passing pattern, and returns more than it should. Motivation and details can be found in the source file.
 
 ## Experiment
