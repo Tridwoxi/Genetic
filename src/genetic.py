@@ -610,9 +610,9 @@ def drive() -> None:
         solves = [trial[0] for trial in trials]
         times = [trial[1] for trial in trials]
         mean_time = int(sum(times) / len(times))
-        verbose("median time", int(median(times)))
+        median_time = int(median(times))
         solve_rate = sum(solves) / len(solves)
-        print(f"mean {mean_time} ns, {solve_rate:.5f}% success rate.")
+        print(f"mean {mean_time} ns, median {median_time} ns, {solve_rate:.5f}% solved")
 
 
 def do_trial(number: int, environment: Environment) -> tuple[bool, int]:
