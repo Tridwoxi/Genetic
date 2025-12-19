@@ -20,6 +20,8 @@ You need python>=3.12 for typing. No third-party dependencies.
 
 ## Model
 
+A state is an element from a set. I will model a state as a tuple of integers to represent a point in a high-dimensional space.
+
 The genetic algorithm is modeled as follows:
 
 ```txt
@@ -83,11 +85,11 @@ $ python3 src/genetic.py \
     --verbose
 ```
 
-![Detailed results for seeking extrema](assets/extreme.png)
+![Detailed results for seeking extrema.](assets/extreme.png)
 
-![Detailed results for seeking the center](assets/center.png)
+![Detailed results for seeking the center.](assets/center.png)
 
-![Detailed results for remaining simulations](assets/remaining.png)
+![Detailed results for remaining simulations.](assets/remaining.png)
 
 Brief results for all environments:
 
@@ -108,5 +110,15 @@ Brief results for all environments:
 <!-- : Brief results for all environments: -->
 
 ## Seeking extrema
+
+In the default environment and the command line arguments I used, the algorithm maximises the sum of the values of states, and considers itself successful when it finds the maximum value possible, which is the state `(9, 9, 9, 9, 9, 9, 9, 9, 9, 9)`. Hence, it seeks extrema. It does so by selecting half of each parent's genes during each reproduction, regenerating a value, and keeping the most fit individuals.
+
+All other environments are variations on the default environment. The "get to center of landscape" environment differs from the default environment in that it seeks to minimize the distance to the center of the landscape, and so has optimal state `(4, 4, 4, 4, 4, 4, 4, 4, 4, 4)`. It uses a similar strategy as the default environment.
+
+You may think a genetic algorithm struggles to reach extrema because when combining parents, it produces a child that is the average of both parents, and more moderate than each. Producing a midpoint would occur if the recombinator averaged all of a parent's states, like `C1` in figure 4. But genetic algorithms usually combine states by sampling a portion from each parent. By directly copying these features, the algorithm preserves extreme states, like `C2` in figure 4.
+
+![Two ways a genetic algorithm could combine states. `P1` and `P2` are parents; `C1` and `C2` are children.](assets/merge.png)
+
+Similar features scoring similarly is irrelevant: to the algorithm, the value the feature takes is a meaningless dictionary key. This treatment is a good fit for the general case, where the feature "2" could be very fit, but the nearby "1" does not need to be; the "get prime numbered values" environment exploits this difference. A feature's meaning is only of interest to the programmer, who can use it to write better heuristics.
 
 ## Seeking everything else
