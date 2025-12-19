@@ -465,79 +465,59 @@ _BASE = _Environment(
 )
 
 DEFAULT = Environment(
-    name="""
-    Default environment. The algorithm tries to get to the top right corner.""",
+    name="Default",
     data=_BASE,
 )
 DEFAULT.register()
 
 DEFAULT.but(
-    name="""
-    Try to get to the center of the landscape instead of the corner.
-    """,
+    name="Get to center of landscape",
     fitness=center,
     goal_test=almost_one,
 ).register()
 
 
 DEFAULT.but(
-    name="""
-    Only consider children in the next population.
-    """,
+    name="Only consider children",
     selector=only_children,
 ).register()
 
 DEFAULT.but(
-    name="""
-    Use a really slow mutator that doesn't wrap.
-    """,
+    name="Slow non-wrapping mutator",
     mutator=bounded_nudge,
 ).register()
 
 DEFAULT.but(
-    name="""
-    Throw out any knowledge from the previous generation.
-    """,
+    name="Rebuild from scratch",
     mutator=obliterate,
 ).register()
 
 DEFAULT.but(
-    name="""
-    Multiplication as fitness for a sharper peak.
-    """,
+    name="Multiply fitnesses",
     fitness=multiplication,
     goal_test=almost_product,
 ).register()
 
 DEFAULT.but(
-    name="""
-    Reward prime numbered variables.
-    """,
+    name="Get prime numbered values",
     fitness=num_primes,
     goal_test=almost_dimension,
 ).register()
 
 DEFAULT.but(
-    name="""
-    Many sharp but sparse peaks.
-    """,
+    name="Get sharp peaks",
     fitness=multi_peak,
     goal_test=almost_one,
 ).register()
 
 DEFAULT.but(
-    name="""
-    Require exactly the origin, and nothing else.
-    """,
+    name="Get origin",
     fitness=all_zero,
     goal_test=almost_one,
 ).register()
 
 DEFAULT.but(
-    name="""
-    Draw the child schema entirely from one parent, as if no recombination
-    takes place.
-    """,
+    name="Draw child from one parent",
     recombinator=dominate,
 ).register()
 
