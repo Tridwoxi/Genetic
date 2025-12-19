@@ -352,7 +352,7 @@ def center(state: State) -> float:
     max_distance = max(center_point, 1.0)
     cum_distance = sum(abs(x - center_point) / max_distance for x in state.data)
     normalized = cum_distance / Config.dimensions
-    if normalized < 0.0 and normalized > 1.0:
+    if not (0.0 <= normalized <= 1.0):
         msg = "Unexpected distance out of range."
         raise ValueError(msg)
     return 1.0 - normalized
@@ -399,12 +399,12 @@ def multi_peak(state: State) -> float:
         # Distance from origin to the point (1, 1, 1, ...) grows with number of
         # dimensions, so I normalize proportionally to the max distance.
         normalizer = sqrt(Config.dimensions)  # Play well with almost_one goal test.
-        return max((normalizer - distance) / penalty / normalizer, 0.0)
+        return max(1.0 - (distance / (penalty * normalizer)), 0.0)
 
     if Globals.peaks is None:
         msg = "Peaks must be built before algorithm runs."
         raise ValueError(msg)
-    return min(map(score, map(distance_to, Globals.peaks)))
+    return max(map(score, map(distance_to, Globals.peaks)))
 
 
 @GoalTest.to()
@@ -611,8 +611,8 @@ def drive() -> None:
         times = [trial[1] for trial in trials]
         mean_time = int(sum(times) / len(times))
         median_time = int(median(times))
-        solve_rate = sum(solves) / len(solves)
-        print(f"mean {mean_time} ns, median {median_time} ns, {solve_rate:.5f}% solved")
+        solve_rate = 100 * (sum(solves) / len(solves))
+        print(f"mean {mean_time} ns, median {median_time} ns, {solve_rate:.5f} solved")
 
 
 def do_trial(number: int, environment: Environment) -> tuple[bool, int]:
