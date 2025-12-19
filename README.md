@@ -2,9 +2,9 @@
 
 # What landscapes are genetic algorithms good at?
 
-A genetic algorithm is a state space search strategy. It recombines a population of states to produce more optimal populations of states, much like how evolution by natural selection recombines a population of individuals to produce more optimal populations of individuals.
+A genetic algorithm is a state space search strategy. It recombines a population of states to produce more optimal states, much like how evolution by natural selection recombines a population of individuals to produce more optimal populations of individuals.
 
-With a well-chosen fitness function, computer scientists hope to use genetic algorithms to efficiently find optimal states. I perform a case study on what environments genetic algorithms are a good choice for, with a focus on reaching the extrema of state spaces.
+With a well-chosen fitness function, computer scientists hope to use genetic algorithms to efficiently find optimal states. I perform a case study on what environments genetic algorithms are well-suited to, with a focus on reaching the extrema of state spaces.
 
 ## Setup
 
@@ -38,11 +38,11 @@ subroutine "genetic search" accepts (
     "reproductions", a strictly positive integer specifying number
         of children and carrying capacity;
 ) returns (
-    "result" if the search suceeds or nothing if the search fails;
+    "result" if the search succeeds or nothing if the search fails;
 ) has side effects (
     nothing;
 ) {
-    let "population" be a list of randoms states;
+    let "population" be a list of random states;
     do "max generations" times {
         let "fitnesses" be the fitnesses of "population" according
             to "fitness";
@@ -64,7 +64,7 @@ subroutine "genetic search" accepts (
 }
 ```
 
-I will call each set of parameters an "environment" analagously to how evolution will run its course differently across environments.
+I will call each set of parameters an "environment" analogously to how evolution will run its course differently across environments.
 
 Contrary to the model, a real-world implementation of a genetic algorithm may hardcode most aspects to solve a particular task. I supply them as parameters because I want to see what happens when I change them.
 
@@ -111,15 +111,15 @@ Brief results for all environments:
 
 ## Seeking extrema
 
-In the default environment and the command line arguments I used, the algorithm maximises the sum of the values of states, and considers itself successful when it finds the maximum value possible, which is the state `(9, 9, 9, 9, 9, 9, 9, 9, 9, 9)`. Hence, it seeks extrema. It does so by selecting half of each parent's genes during each reproduction, regenerating a value, and keeping the most fit individuals.
+In the default environment and the command line arguments I used, the algorithm maximizes the sum of the values of states, and considers itself successful when it finds the maximum value possible, which is the state `(9, 9, 9, 9, 9, 9, 9, 9, 9, 9)`. Hence, it seeks extrema. It does so by selecting half of each parent's genes during each reproduction, regenerating a value, and keeping the most fit individuals.
 
-All other environments are variations on the default environment. The "get to center of landscape" environment differs from the default environment in that it seeks to minimize the distance to the center of the landscape, and so has optimal state `(4, 4, 4, 4, 4, 4, 4, 4, 4, 4)`. It uses a similar strategy as the default environment.
+All other environments are variations on the default environment. The "get to center of landscape" environment differs from the default environment in that it seeks to minimize the distance to the center of the landscape, and so has the optimal state `(4, 4, 4, 4, 4, 4, 4, 4, 4, 4)`. It uses a similar strategy as the default environment.
 
 You may think a genetic algorithm struggles to reach extrema because when combining parents, it produces a child that is the average of both parents, and more moderate than each. Producing a midpoint would occur if the recombinator averaged all of a parent's states, like `C1` in figure 4. But genetic algorithms usually combine states by sampling a portion from each parent. By directly copying these features, the algorithm preserves extreme states, like `C2` in figure 4.
 
 ![Two ways a genetic algorithm could combine states. `P1` and `P2` are parents; `C1` and `C2` are children.](assets/merge.png)
 
-Hence, the genetic algorithm suceeds in finding both the maximum value and center of the state space when given a good heuristic. Figures 1 to 3 show max fitness approaches its maximum value (which means the states are very similar to the target according to the fitness function) and in both environments the algorithm suceeds half the time in around 60 generations. Seeking the center suceeds slightly faster, but I think this difference is not significant.
+Hence, the genetic algorithm succeeds in finding both the maximum value and center of the state space when given a good heuristic. Figures 1 to 3 show that max fitness approaches its maximum value (which means the states are very similar to the target according to the fitness function) and in both environments, the algorithm succeeds half the time in around 60 generations. Seeking the center succeeds slightly faster, but I think this difference is not significant.
 
 Similar features scoring similarly is irrelevant: to the algorithm, the value the feature takes is a meaningless dictionary key. This treatment is a good fit for the general case, where the feature "2" could be very fit, but the nearby "1" does not need to be; the "get prime numbered values" environment exploits this difference. A feature's meaning is only of interest to the programmer, who can use it to write better heuristics.
 
@@ -127,16 +127,16 @@ Similar features scoring similarly is irrelevant: to the algorithm, the value th
 
 The algorithm fails in the "only consider children" environment because it allows fitness to decrease. The algorithm struggles to optimize good states in the default environment: for example, once it reaches `(9, 9, 9, 9, 9, 9, 9, 9, 9, 8)` and mutates a value, it has a 1 in 100 chance of mutating the 8 to a 9. But in "only consider children", throwing out parents means a good state can no longer be used as a stepping stone.
 
-The "slow non-wrapping mutator" is more efficient than the default environment. Although it takes longer to repalce a bad state into a good one, it is better at optimizing good states. In the example in "only consider children", it has a 1 in 20 chance of suceeding.
+The "slow non-wrapping mutator" is more efficient than the default environment. Although it takes longer to replace a bad state into a good one, it is better at optimizing good states. In the example in "only consider children", it has a 1 in 20 chance of succeeding.
 
 "Rebuild from scratch" is essentially hopeless. Since it ignores the parent generation and creates new states at random, it is no better than random search (worse, actually, since the genetic algorithm has a lot of overhead). The chance of guessing the maximal state randomly is 1 in 10000000000.
 
-The "multiply fitnesses" environment may have a small effect by increasing selection pressure for good environments by weighing them more against sub-optimal ones, but it fails to score state like `(9, 9, 9, 9, 9, 9, 9, 9, 9, 0)` highly despite being 1 generation away from the goal. A better fitness function would be to count the number of maximal values in the state, but if we had a function like that, there wouldn't be a need for the genetic algorithm.
+The "multiply fitnesses" environment may have a small effect by increasing selection pressure for good states by weighing them more against sub-optimal ones, but it fails to score state like `(9, 9, 9, 9, 9, 9, 9, 9, 9, 0)` highly despite being 1 generation away from the goal. A better fitness function would be to count the number of maximal values in the state, but if we had a function like that, there wouldn't be a need for the genetic algorithm.
 
-Since the genetic algorithm cares only about states and not the interpretation of values or the relations between them, it is unsurpising that the "get prime numbered values" environment finishes four times faster than the default. There are multiple prime numbers, but only one maximal value, so it is easier to reach the best state.
+Since the genetic algorithm cares only about states and not the interpretation of values or the relations between them, it is unsurprising that the "get prime numbered values" environment finishes four times faster than the default. There are multiple prime numbers, but only one maximal value, so it is easier to reach the best state.
 
-The "get sharp peaks" environment was more difficult for the algorithm. Speculatively, this is because combining two fit parents does not always produce a fit child. The child may like in a valley between peaks, unlike the default environment where the fitness landscape is smooth.
+The "get sharp peaks" environment was more difficult for the algorithm. Speculatively, this is because combining two fit parents does not always produce a fit child. The child may lie in a valley between peaks, unlike the default environment where the fitness landscape is smooth.
 
-The "get origin" environment uses a fitness function where the origin is rewarded and no information is given otherwise. It should be just as hopeless as the "rebuild from scratch" environment in guessing the origin, but suceeds most of the time because of an implementation detail: the selector uses state values as a tiebreaker, and gradually increases states that look like 0.0.
+The "get origin" environment uses a fitness function where the origin is rewarded and no information is given otherwise. It should be just as hopeless as the "rebuild from scratch" environment in guessing the origin, but succeeds most of the time because of an implementation detail: the selector uses state values as a tiebreaker, and gradually increases states that look like 0.0.
 
-The "draw child from one parent" environment should hurt a genetic algorithm because schemas contain fragments of useful information that can be combined instead of evolving each section seperately, and in my experiment it failed to solve more cases than the default. However, it was faster. Speculatively, this is because it saves compute by not recombining, and both fragments of a state usually contribute similar fitnesses.
+The "draw child from one parent" environment should hurt a genetic algorithm because schemas contain fragments of useful information that can be combined instead of evolving each section separately, and in my experiment it failed to solve more cases than the default. However, it was faster. Speculatively, this is because it saves compute by not recombining, and both fragments of a state usually contribute similar fitnesses.
