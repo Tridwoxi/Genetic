@@ -24,32 +24,41 @@ The genetic algorithm is modeled as follows:
 
 ```txt
 subroutine "genetic search" accepts (
-    "recombinator", a subroutine that merges two states
-    "mutator", a subroutine that changes a state
-    "goal test", a subroutine that determines when a state is sufficiently optimal
-    "fitness", a subroutine that evaluates how optimal a state is
-    "selector", a subroutine that drops states from the population pool
-    "max generations", a strictly positive integer specifying how long the algorithm runs until it gives up
-    "reproductions", a strictly positive integer specifying number of children and carrying capacity
+    "recombinator", a subroutine that merges two states;
+    "mutator", a subroutine that changes a state;
+    "goal test", a subroutine that determines when a state is
+        sufficiently optimal;
+    "fitness", a subroutine that evaluates how optimal a state is;
+    "selector", a subroutine that drops states from the population
+        pool;
+    "max generations", a strictly positive integer specifying how
+        long the algorithm runs until it gives up;
+    "reproductions", a strictly positive integer specifying number
+        of children and carrying capacity;
 ) returns (
-    "result", if the search suceeds, or nothing if the search fails
+    "result" if the search suceeds or nothing if the search fails;
 ) has side effects (
-    nothing
+    nothing;
 ) {
-    let "population" be a list of randoms states
+    let "population" be a list of randoms states;
     do "max generations" times {
-        let "fitnesses" be the fitnesses of "population" according to "fitness"
+        let "fitnesses" be the fitnesses of "population" according
+            to "fitness";
         for each "member" of "population" {
             if "member" means the "goal test" {
-                return "member" as result
+                return "member" as result;
             }
         }
-        let "mating pairs" be pairs of parents, with probability proportional to their fitness
-        let "children" be the offspring of "mating pairs" according to "recombinator"
-        let "children" be a mutated version of "children" according to "mutator"
-        let "population" be a subset of "parents" and "children" according to "selector"
+        let "mating pairs" be pairs of parents, with probability
+            proportional to their fitness;
+        let "children" be the offspring of "mating pairs"
+            according to "recombinator";
+        let "children" be a mutated version of "children"
+            according to "mutator";
+        let "population" be a subset of "parents" and "children"
+            according to "selector";
     }
-    return nothing as failure
+    return nothing as failure;
 }
 ```
 
@@ -74,17 +83,11 @@ $ python3 src/genetic.py \
     --verbose
 ```
 
-Detailed results for seeking extrema:
+![Detailed results for seeking extrema](assets/extreme.png)
 
-![Chart of seeking extrema](assets/extreme.png)
+![Detailed results for seeking the center](assets/center.png)
 
-Detailed results for seeking the center:
-
-![Chart of seeking the center](assets/center.png)
-
-Detailed results for success of previous environments:
-
-![Chart of remaining simulations](assets/remaining.png)
+![Detailed results for remaining simulations](assets/remaining.png)
 
 Brief results for all environments:
 
@@ -100,6 +103,9 @@ Brief results for all environments:
 | Get sharp peaks            |      8,648,448 |        8,547,041 |           98.0 |
 | Get origin                 |      5,345,438 |        5,414,854 |           85.3 |
 | Draw child from one parent |      3,071,833 |        3,102,792 |           87.3 |
+
+<!-- Uncomment for a Pandoc-recognized table caption: -->
+<!-- : Brief results for all environments: -->
 
 ## Seeking extrema
 
