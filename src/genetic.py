@@ -379,7 +379,6 @@ def num_primes(state: State) -> float:
 @Fitness.to()
 def all_zero(state: State) -> float:
     """All values are 0."""
-    # random.choices with all 0 weights will raise, so I give it a small value.
     return float(all(x == 0 for x in state.data))
 
 
