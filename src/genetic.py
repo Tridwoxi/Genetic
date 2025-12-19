@@ -343,6 +343,16 @@ def addition(state: State) -> float:
 
 
 @Fitness.to()
+def center(state: State) -> float:
+    """Get to the center of the landscape."""
+
+    def penalty(x: int) -> float:
+        return abs(x - Config.granularity) / Config.granularity * 2
+
+    return 1.0 - sum(map(penalty, state.data))
+
+
+@Fitness.to()
 def num_primes(state: State) -> float:
     """Count the number of prime numbers in the positions."""
 
@@ -455,6 +465,15 @@ DEFAULT = Environment(
     data=_BASE,
 )
 DEFAULT.register()
+
+DEFAULT.but(
+    name="""
+    Try to get to the center of the landscape instead of the corner.
+    """,
+    fitness=center,
+    goal_test=almost_one,
+).register()
+
 
 DEFAULT.but(
     name="""
