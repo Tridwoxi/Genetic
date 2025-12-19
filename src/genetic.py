@@ -345,11 +345,17 @@ def addition(state: State) -> float:
 @Fitness.to()
 def center(state: State) -> float:
     """Get to the center of the landscape."""
-
-    def penalty(x: int) -> float:
-        return abs(x - Config.granularity) / Config.granularity * 2
-
-    return 1.0 - sum(map(penalty, state.data))
+    # I use floor division because the state needs to match the center point exactly to
+    # achieve maximum fitness. It is fine if that makes the "center" not exactly at the
+    # center, because I am contrasting it with the extreme.
+    center_point = float(Config.granularity // 2)
+    max_distance = max(center_point, 1.0)
+    cum_distance = sum(abs(x - center_point) / max_distance for x in state.data)
+    normalized = cum_distance / Config.dimensions
+    if normalized < 0.0 and normalized > 1.0:
+        msg = "Unexpected distance out of range."
+        raise ValueError(msg)
+    return 1.0 - normalized
 
 
 @Fitness.to()
