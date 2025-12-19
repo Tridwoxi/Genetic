@@ -107,7 +107,7 @@ Brief results for all environments:
 | Draw child from one parent |      3,071,833 |        3,102,792 |           87.3 |
 
 <!-- Uncomment for a Pandoc-recognized table caption: -->
-<!-- : Brief results for all environments: -->
+<!-- : Brief results for all environments -->
 
 ## Seeking extrema
 
